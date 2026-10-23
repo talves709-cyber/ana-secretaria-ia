@@ -21,7 +21,7 @@ Status: `a fazer`, `em andamento`, `em revisão`, `feito`.
 
 ## Decisões do Thiago (2026-10-23)
 
-Empresas: Kamex, WTA e Casa Agenciamentos, mais "Pessoal". WhatsApp principal dele.
+Empresas: Kas Agenciamentos (agenciamento de carga e despacho aduaneiro, dona das demais), Kamex Trading (importação/exportação, unidades ES e SC, marcas de produtos elétricos) e WTA Logistics (transporte, DTA, armazém geral e alfandegado), mais "Pessoal". WhatsApp principal dele.
 Grupos entram. Mensagens enviadas por ele também são analisadas. Áudio desde o início,
 com transcrição grátis (rodando na VPS). Histórico: importar os últimos 3 meses.
 Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depois do OK dele.
@@ -30,7 +30,7 @@ Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depoi
 
 | # | Tarefa | Dono | Status | Notas |
 |---|---|---|---|---|
-| 2.1 | Seed: empresas, segmentos e categorias iniciais | livre | a fazer | lista sendo fechada com o Thiago |
+| 2.1 | Seed: empresas, segmentos e categorias iniciais | claude | em revisão | `002_cadastro_inicial.sql` |
 | 2.2 | Agrupar mensagens seguidas da mesma conversa (~45 s) | livre | a fazer | |
 | 2.3 | Classificador com Claude (saída estruturada, separa Pessoal x empresas) | livre | a fazer | |
 | 2.4 | Caixa de revisão (API) | livre | a fazer | |
