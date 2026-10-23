@@ -49,12 +49,18 @@ async function garantirConversa(
   return { id: Number(r.rows[0]!.id), modo: r.rows[0]!.modo };
 }
 
-/** Grava a mensagem. Devolve o id novo, ou null se já existia ou a conversa é ignorada. */
+export interface MensagemGravada {
+  id: number;
+  conversaId: number;
+  modo: string;
+}
+
+/** Grava a mensagem. Devolve null se ela já existia ou se a conversa é ignorada. */
 export async function gravarMensagem(
   db: Db,
   m: MensagemNormalizada,
   eventoId: number,
-): Promise<number | null> {
+): Promise<MensagemGravada | null> {
   const remetenteId = m.remetenteJid ? await garantirContato(db, m.remetenteJid, m.remetenteNome) : null;
   const conversa = await garantirConversa(
     db,
@@ -70,7 +76,7 @@ export async function gravarMensagem(
      RETURNING id`,
     [m.whatsappMsgId, conversa.id, remetenteId, m.deMim, m.tipo, m.texto, m.recebidaEm, eventoId],
   );
-  return r.rows[0] ? Number(r.rows[0].id) : null;
+  return r.rows[0] ? { id: Number(r.rows[0].id), conversaId: conversa.id, modo: conversa.modo } : null;
 }
 
 export async function gravarEstadoConexao(db: Db, instancia: string, estado: string) {

@@ -3,7 +3,11 @@ import { normalizarMensagens } from './normalizar.js';
 import { gravarEstadoConexao, gravarMensagem, lerEvento, marcarEvento } from './repositorio.js';
 
 /** Processa um evento já gravado. Lança erro para o BullMQ tentar de novo. */
-export async function processarEvento(db: Db, eventoId: number): Promise<void> {
+export async function processarEvento(
+  db: Db,
+  eventoId: number,
+  agendarClassificacao?: (conversaId: number) => Promise<void>,
+): Promise<void> {
   const evento = await lerEvento(db, eventoId);
   if (!evento) return;
   try {
@@ -11,8 +15,10 @@ export async function processarEvento(db: Db, eventoId: number): Promise<void> {
     switch (evento.evento) {
       case 'messages.upsert':
         for (const m of normalizarMensagens(data)) {
-          await gravarMensagem(db, m, eventoId);
-          // Fase 2: enfileirar a mensagem nova para classificação.
+          const gravada = await gravarMensagem(db, m, eventoId);
+          if (gravada?.modo === 'classificar' && agendarClassificacao) {
+            await agendarClassificacao(gravada.conversaId);
+          }
         }
         break;
       case 'connection.update':

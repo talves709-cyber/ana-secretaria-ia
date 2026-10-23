@@ -18,6 +18,11 @@ const esquema = z.object({
   WEBHOOK_TOKEN: segredo(16),
   PAINEL_SENHA: segredo(12),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  // Sem chave, a Ana só grava as mensagens e não classifica.
+  ANTHROPIC_API_KEY: z.string().optional().transform((v) => v?.trim() || undefined),
+  CLAUDE_MODELO: z.string().default('claude-opus-5-5'),
+  CLAUDE_ESFORCO: z.enum(['low', 'medium', 'high']).default('low'),
+  CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
 });
 
 export type Config = z.infer<typeof esquema>;
