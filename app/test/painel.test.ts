@@ -9,7 +9,14 @@ const auth = (senha: string) => `Basic ${Buffer.from(`thiago:${senha}`).toString
 function montar(estado: string) {
   const app = Fastify();
   const qrCode = vi.fn(async () => ({ base64: 'data:image/png;base64,AAAA', code: 'x' }));
-  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode });
+  const resumo = vi.fn(async () => ({
+    total: 7,
+    hoje: 3,
+    ultimas: [
+      { recebidaEm: new Date('2026-10-23T18:00:00Z'), conversa: 'Maria', deMim: false, tipo: 'conversation', texto: '<script>x</script> oi' },
+    ],
+  }));
+  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo });
   return { app, qrCode };
 }
 
@@ -32,6 +39,9 @@ describe('GET /conexao', () => {
     const { app, qrCode } = montar('open');
     const r = await app.inject({ url: '/conexao', headers: { authorization: auth(SENHA) } });
     expect(r.body).toContain('WhatsApp conectado');
+    expect(r.body).toContain('<strong>3</strong> mensagens hoje');
+    expect(r.body).toContain('23/10, 15:00');
+    expect(r.body).not.toContain('<script>');
     expect(qrCode).not.toHaveBeenCalled();
   });
 });

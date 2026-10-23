@@ -16,7 +16,7 @@ import {
 import { migrar } from './migrate.js';
 import { registrarPainel } from './painel.js';
 import { processarEvento } from './processar.js';
-import { gravarEvento } from './repositorio.js';
+import { gravarEvento, resumoMensagens } from './repositorio.js';
 import { criarServidor } from './webhook.js';
 
 const config = lerConfig();
@@ -91,6 +91,7 @@ registrarPainel(servidor, {
   senha: config.PAINEL_SENHA,
   estado: garantirInstancia,
   qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
+  resumo: () => resumoMensagens(db),
 });
 
 await servidor.listen({ host: '0.0.0.0', port: config.PORT });
