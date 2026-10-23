@@ -15,6 +15,15 @@ export interface QrCode {
   pairingCode?: string | null;
 }
 
+export class ErroEvolution extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export class Evolution {
   constructor(
     private readonly url: string,
@@ -28,7 +37,9 @@ export class Evolution {
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
     const texto = await resposta.text();
-    if (!resposta.ok) throw new Error(`Evolution ${metodo} ${caminho} → ${resposta.status}: ${texto}`);
+    if (!resposta.ok) {
+      throw new ErroEvolution(`Evolution ${metodo} ${caminho} → ${resposta.status}: ${texto}`, resposta.status);
+    }
     return (texto ? JSON.parse(texto) : {}) as T;
   }
 
@@ -71,5 +82,16 @@ export class Evolution {
       `/instance/connectionState/${encodeURIComponent(nome)}`,
     );
     return r.instance?.state ?? 'desconhecido';
+  }
+
+  /** Cria a instância com o webhook se ela ainda não existir. Devolve o estado atual. */
+  async garantirInstancia(nome: string, webhookUrl: string, webhookToken: string): Promise<string> {
+    try {
+      return await this.estado(nome);
+    } catch (erro) {
+      if (!(erro instanceof ErroEvolution) || erro.status !== 404) throw erro;
+      await this.criarInstancia(nome, webhookUrl, webhookToken);
+      return 'criada';
+    }
   }
 }

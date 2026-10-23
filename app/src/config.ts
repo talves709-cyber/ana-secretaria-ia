@@ -1,14 +1,22 @@
 import { z } from 'zod';
 
+/** Segredo que não pode ficar com o valor de exemplo do .env.example. */
+const segredo = (minimo: number) =>
+  z
+    .string()
+    .min(minimo, `precisa de pelo menos ${minimo} caracteres`)
+    .refine((v) => !v.startsWith('troque-'), 'ainda está com o valor de exemplo; troque no .env');
+
 const esquema = z.object({
   PORT: z.coerce.number().default(3100),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   EVOLUTION_URL: z.string().url(),
-  EVOLUTION_API_KEY: z.string().min(1),
+  EVOLUTION_API_KEY: segredo(16),
   EVOLUTION_INSTANCE: z.string().default('ana'),
   WEBHOOK_URL: z.string().url(),
-  WEBHOOK_TOKEN: z.string().min(16, 'WEBHOOK_TOKEN precisa de pelo menos 16 caracteres'),
+  WEBHOOK_TOKEN: segredo(16),
+  PAINEL_SENHA: segredo(12),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
 });
 
