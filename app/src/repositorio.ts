@@ -80,3 +80,38 @@ export async function gravarEstadoConexao(db: Db, instancia: string, estado: str
     [instancia, estado],
   );
 }
+
+export interface ResumoMensagens {
+  total: number;
+  hoje: number;
+  ultimas: { recebidaEm: Date; conversa: string; deMim: boolean; tipo: string; texto: string | null }[];
+}
+
+/** Números e últimas mensagens para a página /conexao. "Hoje" no fuso de São Paulo. */
+export async function resumoMensagens(db: Db, limite = 10): Promise<ResumoMensagens> {
+  const contagem = await db.query<{ total: string; hoje: string }>(
+    `SELECT count(*) AS total,
+            count(*) FILTER (WHERE recebida_em >= date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') AS hoje
+     FROM mensagens`,
+  );
+  const ultimas = await db.query<{ recebida_em: Date; conversa: string; de_mim: boolean; tipo: string; texto: string | null }>(
+    `SELECT m.recebida_em, COALESCE(c.nome, k.nome, c.jid) AS conversa, m.de_mim, m.tipo, m.texto
+     FROM mensagens m
+     JOIN conversas c ON c.id = m.conversa_id
+     LEFT JOIN contatos k ON k.id = c.contato_id
+     ORDER BY m.recebida_em DESC
+     LIMIT $1`,
+    [limite],
+  );
+  return {
+    total: Number(contagem.rows[0]!.total),
+    hoje: Number(contagem.rows[0]!.hoje),
+    ultimas: ultimas.rows.map((r) => ({
+      recebidaEm: r.recebida_em,
+      conversa: r.conversa,
+      deMim: r.de_mim,
+      tipo: r.tipo,
+      texto: r.texto,
+    })),
+  };
+}
