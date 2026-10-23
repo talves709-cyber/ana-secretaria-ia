@@ -16,7 +16,7 @@ Status: `a fazer`, `em andamento`, `em revisão`, `feito`.
 | 1.7 | Baixar mídia (imagem, PDF, áudio) para disco/objeto | livre | a fazer | Evolution: `getBase64FromMediaMessage` |
 | 1.8 | HTTPS na frente do app | claude | feito | domínio do Easypanel (Traefik), ver docs/DEPLOY-EASYPANEL.md |
 | 1.9 | Deploy na VPS Hostinger (Easypanel) | claude | feito | no ar em 2026-10-23, WhatsApp conectado |
-| 1.11 | Página /conexao mostra total e últimas mensagens | claude | em andamento | |
+| 1.11 | Página /conexao mostra total e últimas mensagens | claude | em revisão | |
 | 1.10 | Backup diário do Postgres para fora da VPS | livre | a fazer | |
 
 ## Decisões do Thiago (2026-10-23)
