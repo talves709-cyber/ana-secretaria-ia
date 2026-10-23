@@ -13,31 +13,24 @@ Pronto: Evolution conectado por QR Code, webhook gravando cada evento, fila com 
 e o worker gravando contatos, conversas e mensagens no Postgres. A classificação com IA
 é a Fase 2.
 
-## Subir na VPS
+## Subir na VPS (Hostinger + Easypanel)
 
-Requisitos: Docker e Docker Compose.
-
-```bash
-git clone <este repositório> ana && cd ana
-cp .env.example .env
-# edite o .env: troque todos os "troque-..." (openssl rand -hex 32 gera valores bons)
-docker compose up -d --build
-docker compose logs -f app      # deve mostrar "Migrações aplicadas" e o servidor ouvindo
-```
+Passo a passo completo em [docs/DEPLOY-EASYPANEL.md](docs/DEPLOY-EASYPANEL.md). Resumo:
+serviço Compose no Easypanel apontando para este repositório, variáveis do
+`.env.example` preenchidas, domínio HTTPS no serviço `app` (porta 3100).
 
 ## Conectar o WhatsApp (QR Code)
 
-```bash
-docker compose exec app node dist/scripts/criar-instancia.js   # só na primeira vez
-docker compose exec app node dist/scripts/qrcode.js            # mostra o QR no terminal
-```
+Abra `https://SEU-DOMINIO/conexao`, entre com a `PAINEL_SENHA` e escaneie o QR Code em
+WhatsApp > Aparelhos conectados > Conectar aparelho. O app cria a instância no Evolution
+sozinho na primeira vez.
 
-No celular: WhatsApp > Aparelhos conectados > Conectar aparelho, e escaneie. Se o QR
-expirar, rode `qrcode.js` de novo. Para conferir:
+## Rodar local
 
 ```bash
-docker compose exec postgres psql -U ana -d ana -c "select * from estado_conexao"
-# estado = open  → conectado
+cp .env.example .env   # e troque os valores "troque-..."
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+# página de conexão em http://localhost:3100/conexao
 ```
 
 ## Ver as mensagens chegando

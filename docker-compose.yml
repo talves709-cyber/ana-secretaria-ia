@@ -1,14 +1,15 @@
+# Sem "ports" e sem "container_name" de propósito: o Easypanel publica só o app
+# (porta 3100) por domínio com HTTPS. Para rodar local, use também docker-compose.local.yml.
 services:
   evolution:
     image: evoapicloud/evolution-api:v2.3.7
     restart: always
     depends_on: [postgres, redis]
-    env_file: .env
     environment:
       SERVER_URL: ${EVOLUTION_PUBLIC_URL}
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
       DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=evolution_api
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/ana?schema=evolution_api
       DATABASE_CONNECTION_CLIENT_NAME: ana
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: redis://redis:6379/6
@@ -17,9 +18,6 @@ services:
       LANGUAGE: pt-BR
     volumes:
       - evolution_instances:/evolution/instances
-    # Só acessível pela própria VPS. Para o painel do Evolution, use um túnel SSH.
-    ports:
-      - "127.0.0.1:8080:8080"
 
   postgres:
     image: postgres:16
@@ -30,7 +28,6 @@ services:
       POSTGRES_DB: ana
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ana"]
       interval: 10s
@@ -56,8 +53,6 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/ana
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_URL: http://evolution:8080
-    ports:
-      - "127.0.0.1:3100:3100"
 
 volumes:
   evolution_instances:

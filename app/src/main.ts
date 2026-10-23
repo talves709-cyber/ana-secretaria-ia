@@ -1,7 +1,9 @@
 import { lerConfig } from './config.js';
 import { criarDb } from './db.js';
+import { Evolution } from './evolution.js';
 import { criarFila, criarWorker } from './fila.js';
 import { migrar } from './migrate.js';
+import { registrarPainel } from './painel.js';
 import { processarEvento } from './processar.js';
 import { gravarEvento } from './repositorio.js';
 import { criarServidor } from './webhook.js';
@@ -28,7 +30,22 @@ const servidor = criarServidor({
   },
 });
 
+const evolution = new Evolution(config.EVOLUTION_URL, config.EVOLUTION_API_KEY);
+const garantirInstancia = () =>
+  evolution.garantirInstancia(config.EVOLUTION_INSTANCE, config.WEBHOOK_URL, config.WEBHOOK_TOKEN);
+
+registrarPainel(servidor, {
+  senha: config.PAINEL_SENHA,
+  estado: garantirInstancia,
+  qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
+});
+
 await servidor.listen({ host: '0.0.0.0', port: config.PORT });
+
+// O Evolution pode demorar a subir; se falhar aqui, a página /conexao tenta de novo.
+garantirInstancia()
+  .then((estado) => console.log(`Instância ${config.EVOLUTION_INSTANCE}: ${estado}`))
+  .catch((erro) => console.warn(`Evolution ainda indisponível: ${(erro as Error).message}`));
 
 async function encerrar() {
   await servidor.close();
