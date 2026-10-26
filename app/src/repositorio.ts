@@ -212,3 +212,40 @@ export async function resumoDiario(db: Db, limite = 20, limiarRevisao = 0.6): Pr
     sugestoes: sugestoes.rows.map((r) => ({ nome: r.nome_sugerido, qtd: Number(r.qtd) })),
   };
 }
+
+export interface RetencaoResumo {
+  limiteMeses: number;
+  antigas: number;
+  podeApagar: number;
+  revisar: number;
+  semClassificacao: number;
+  maisAntiga: Date | null;
+}
+
+/**
+ * Só conta: nada é apagado aqui. Diz quantas mensagens passaram do limite e quantas
+ * já podem ser apagadas (classificadas com confiança suficiente e sem revisão pendente).
+ */
+export async function retencaoResumo(db: Db, limiteMeses = 4, limiarRevisao = 0.6): Promise<RetencaoResumo> {
+  const r = await db.query<{ antigas: string; pode: string; revisar: string; sem: string; mais_antiga: Date | null }>(
+    `SELECT
+       count(*) AS antigas,
+       count(*) FILTER (WHERE c.id IS NOT NULL AND (c.corrigido_por_voce = true OR (c.corrigido_por_voce = false AND c.confianca >= $2))) AS pode,
+       count(*) FILTER (WHERE c.id IS NOT NULL AND c.corrigido_por_voce = false AND (c.confianca IS NULL OR c.confianca < $2)) AS revisar,
+       count(*) FILTER (WHERE c.id IS NULL) AS sem,
+       min(m.recebida_em) AS mais_antiga
+     FROM mensagens m
+     LEFT JOIN classificacoes c ON c.mensagem_id = m.id
+     WHERE m.recebida_em < now() - make_interval(months => $1)`,
+    [limiteMeses, limiarRevisao],
+  );
+  const linha = r.rows[0]!;
+  return {
+    limiteMeses,
+    antigas: Number(linha.antigas),
+    podeApagar: Number(linha.pode),
+    revisar: Number(linha.revisar),
+    semClassificacao: Number(linha.sem),
+    maisAntiga: linha.mais_antiga,
+  };
+}

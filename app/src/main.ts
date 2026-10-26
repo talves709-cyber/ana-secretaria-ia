@@ -16,7 +16,7 @@ import {
 import { migrar } from './migrate.js';
 import { registrarPainel } from './painel.js';
 import { processarEvento } from './processar.js';
-import { gravarEvento, resumoDiario, resumoMensagens } from './repositorio.js';
+import { gravarEvento, resumoDiario, resumoMensagens, retencaoResumo } from './repositorio.js';
 import { criarServidor } from './webhook.js';
 
 const config = lerConfig();
@@ -93,6 +93,7 @@ registrarPainel(servidor, {
   qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
   resumo: () => resumoMensagens(db),
   resumoDiario: () => resumoDiario(db),
+  retencao: () => retencaoResumo(db),
 });
 
 await servidor.listen({ host: '0.0.0.0', port: config.PORT });

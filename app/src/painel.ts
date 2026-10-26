@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { QrCode } from './evolution.js';
-import type { LinhaClassificada, ResumoDiario, ResumoMensagens } from './repositorio.js';
+import type { LinhaClassificada, ResumoDiario, ResumoMensagens, RetencaoResumo } from './repositorio.js';
 
 export interface DepsPainel {
   senha: string;
@@ -10,6 +10,7 @@ export interface DepsPainel {
   qrCode: () => Promise<QrCode>;
   resumo: () => Promise<ResumoMensagens>;
   resumoDiario: () => Promise<ResumoDiario>;
+  retencao: () => Promise<RetencaoResumo>;
 }
 
 /** Texto de mensagem vem de terceiros: sempre escapar antes de pôr no HTML. */
@@ -76,7 +77,23 @@ function tabela(titulo: string, linhas: LinhaClassificada[], vazio: string): str
 }
 
 /** Monta a página /painel a partir do resumo do dia. Função pura, para testar o HTML. */
-export function paginaPainel(r: ResumoDiario): string {
+function blocoRetencao(t: RetencaoResumo): string {
+  const data = t.maisAntiga ? hora.format(t.maisAntiga) : '—';
+  const veredito =
+    t.antigas === 0
+      ? `<p class="ok"><strong>Nada com mais de ${t.limiteMeses} meses.</strong></p>`
+      : `<p><strong>Não apague nada ainda.</strong> Por enquanto a Ana só mostra o que existe; a exclusão automática não está ligada.</p>`;
+  return `<h2>Retenção (mais de ${t.limiteMeses} meses)</h2>${veredito}
+<table><tbody>
+<tr><td>Mensagens com mais de ${t.limiteMeses} meses</td><td class="num"><strong>${t.antigas}</strong></td></tr>
+<tr><td>Já podem ser apagadas (classificadas com confiança)</td><td class="num">${t.podeApagar}</td></tr>
+<tr><td>Manter: aguardam revisão</td><td class="num">${t.revisar}</td></tr>
+<tr><td>Manter: ainda sem classificação</td><td class="num">${t.semClassificacao}</td></tr>
+<tr><td>Mensagem mais antiga</td><td class="num">${data}</td></tr>
+</tbody></table>`;
+}
+
+export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo): string {
   const empresas = listaContagem(r.porEmpresa.map((e) => ({ nome: e.empresa, total: e.total })));
   const categorias = listaContagem(r.porCategoria.map((c) => ({ nome: c.categoria, total: c.total })));
   const sugestoes = r.sugestoes.length
@@ -90,6 +107,7 @@ export function paginaPainel(r: ResumoDiario): string {
 ${tabela('Precisa de revisão', r.revisao, 'Nada pendente de revisão. 👍')}
 ${tabela('Últimas classificações', r.recentes, 'Nenhuma mensagem classificada ainda.')}
 ${sugestoes}
+${retencao ? blocoRetencao(retencao) : ''}
 <p class="dica"><a href="/conexao">Ver estado da conexão</a> · atualiza a cada 2 min.</p>`;
   return pagina(corpo, 120);
 }
@@ -147,6 +165,7 @@ export function registrarPainel(app: FastifyInstance, deps: DepsPainel) {
       return reply.code(401).header('www-authenticate', 'Basic realm="Ana", charset="UTF-8"').send('Senha necessária');
     }
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
-    return paginaPainel(await deps.resumoDiario());
+    const [resumo, retencao] = await Promise.all([deps.resumoDiario(), deps.retencao()]);
+    return paginaPainel(resumo, retencao);
   });
 }

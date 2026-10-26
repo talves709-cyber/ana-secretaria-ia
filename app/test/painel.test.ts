@@ -57,7 +57,8 @@ function montar(estado: string) {
     ],
   }));
   const resumoDiario = vi.fn(async () => resumoDiarioFake());
-  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo, resumoDiario });
+  const retencao = vi.fn(async () => ({ limiteMeses: 4, antigas: 5, podeApagar: 3, revisar: 1, semClassificacao: 1, maisAntiga: new Date('2026-05-01T12:00:00Z') }));
+  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo, resumoDiario, retencao });
   return { app, qrCode, resumoDiario };
 }
 
@@ -134,5 +135,15 @@ describe('lerConfig', () => {
         PAINEL_SENHA: 'troque-senha-painel',
       }),
     ).toThrow(/EVOLUTION_API_KEY[\s\S]*PAINEL_SENHA/);
+  });
+});
+
+describe('retenção: só mostra, nunca apaga', () => {
+  it('informa quantas são antigas e não manda apagar', async () => {
+    const { app } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth(SENHA) } });
+    expect(r.body).toContain('Mensagens com mais de 4 meses');
+    expect(r.body).toContain('Não apague nada ainda');
+    expect(r.body).toContain('Já podem ser apagadas');
   });
 });
