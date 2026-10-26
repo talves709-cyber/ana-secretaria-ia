@@ -30,9 +30,9 @@ Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depoi
 
 | # | Tarefa | Dono | Status | Notas |
 |---|---|---|---|---|
-| 2.1 | Seed: empresas, segmentos e categorias iniciais | claude | em revisão | `002_cadastro_inicial.sql` |
-| 2.2 | Agrupar mensagens seguidas da mesma conversa (~45 s) | claude | em revisão | debounce de 45 s por conversa na fila `classificar` |
-| 2.3 | Classificador com Claude (saída estruturada, separa Pessoal x empresas) | claude | em revisão | `src/classificador.ts`; liga só com ANTHROPIC_API_KEY |
+| 2.1 | Seed: empresas, segmentos e categorias iniciais | claude | feito | PR #3 |
+| 2.2 | Agrupar mensagens seguidas da mesma conversa (~45 s) | claude | feito | PR #4 |
+| 2.3 | Classificador com Claude (saída estruturada, separa Pessoal x empresas) | claude | feito | PR #4 |
 | 2.4 | Caixa de revisão (API) | livre | a fazer | |
 | 2.5 | Transcrição de áudio grátis na VPS (whisper.cpp, modelo small) | livre | a fazer | KVM 2: 2 vCPU, 8 GB |
 | 2.6 | Importar e classificar os últimos 3 meses | livre | a fazer | Evolution: histórico na sincronização |
@@ -42,5 +42,5 @@ Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depoi
 
 | # | Tarefa | Dono | Status | Notas |
 |---|---|---|---|---|
-| 3.1 | Painel web com filtros e resumo diário | livre | a fazer | |
+| 3.1 | Painel web com filtros e resumo diário | claude | em andamento | `/painel`: resumo do dia + últimas classificações + caixa de revisão |
 | 3.2 | Sugestão de resposta no estilo do Thiago, enviada só após o OK dele | livre | a fazer | regras de risco antes |
