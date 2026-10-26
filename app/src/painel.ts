@@ -125,6 +125,59 @@ function blocoRotina(grupos: RotinaEmpresa[]): string {
   return `<h2>Rotina de hoje, por empresa</h2><div class="grade">${cartoes}</div>`;
 }
 
+export interface BlocoAgenda {
+  inicio: string;
+  fim: string;
+  titulo: string;
+  itens: { empresa: string; acao: string | null; prioridade: string | null; assunto: string }[];
+  fixo?: string;
+}
+
+/** Monta a agenda sugerida do dia (09h às 18h) a partir da rotina. Função pura. */
+export function montarAgenda(grupos: RotinaEmpresa[]): BlocoAgenda[] {
+  const blocos: BlocoAgenda[] = [
+    { inicio: '09:00', fim: '10:00', titulo: 'Urgentes e prazos de hoje', itens: [] },
+    { inicio: '10:00', fim: '12:00', titulo: 'Cotações e comercial', itens: [] },
+    { inicio: '12:00', fim: '13:00', titulo: 'Almoço', itens: [], fixo: 'Pausa sugerida' },
+    { inicio: '13:00', fim: '15:00', titulo: 'Cobranças e pagamentos', itens: [] },
+    { inicio: '15:00', fim: '16:30', titulo: 'Agendar e acompanhar', itens: [] },
+    { inicio: '16:30', fim: '17:30', titulo: 'Revisar a caixa e as empresas sugeridas', itens: [], fixo: 'Revisão' },
+    { inicio: '17:30', fim: '18:00', titulo: 'Planejar o dia de amanhã', itens: [], fixo: 'Planejamento' },
+  ];
+  const [manha, comercial, , cobrancas, acompanhar] = blocos as BlocoAgenda[];
+  for (const g of grupos) {
+    for (const i of g.itens) {
+      const item = { empresa: g.empresa, acao: i.acaoSugerida, prioridade: i.prioridade, assunto: i.resumo ?? i.texto ?? i.tipo };
+      if (i.prioridade === 'urgente' || i.prioridade === 'alta') manha!.itens.push(item);
+      else if (i.acaoSugerida === 'cotar' || i.acaoSugerida === 'responder') comercial!.itens.push(item);
+      else if (i.acaoSugerida === 'cobrar' || i.acaoSugerida === 'pagar') cobrancas!.itens.push(item);
+      else acompanhar!.itens.push(item);
+    }
+  }
+  return blocos;
+}
+
+function blocoAgenda(grupos: RotinaEmpresa[]): string {
+  const linhas = montarAgenda(grupos)
+    .map((b) => {
+      const lista = b.itens
+        .slice(0, 10)
+        .map((i) => `<li>${etiquetaPrioridade(i.prioridade)} <strong>${escapar(i.empresa)}</strong> · ${i.acao ? escapar(VERBO[i.acao] ?? i.acao) : 'Acompanhar'}: ${escapar(i.assunto.slice(0, 80))}</li>`)
+        .join('');
+      const mais = b.itens.length > 10 ? `<li class="dica">+${b.itens.length - 10} outras</li>` : '';
+      const conteudo = b.fixo
+        ? `<span class="dica">${escapar(b.fixo)}</span>`
+        : b.itens.length
+          ? `<ul class="agenda">${lista}${mais}</ul>`
+          : '<span class="dica">Livre</span>';
+      return `<tr><td class="hora">${b.inicio}–${b.fim}</td><td><strong>${escapar(b.titulo)}</strong>${conteudo ? `<br>${conteudo}` : ''}</td></tr>`;
+    })
+    .join('');
+  return `<h2>Agenda sugerida de hoje</h2>
+<p class="dica">Sugestão, ainda não está na sua agenda. Você decide o que entra.</p>
+<table class="agenda-tab"><tbody>${linhas}</tbody></table>`;
+}
+
 export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo, rotina: RotinaEmpresa[] = []): string {
   const empresas = listaContagem(r.porEmpresa.map((e) => ({ nome: e.empresa, total: e.total })));
   const categorias = listaContagem(r.porCategoria.map((c) => ({ nome: c.categoria, total: c.total })));
@@ -134,6 +187,7 @@ export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo, rotina:
       )}`
     : '';
   const corpo = `<p><strong>${r.totalHoje}</strong> mensagens classificadas hoje (${escapar(r.dia)})</p>
+${blocoAgenda(rotina)}
 ${blocoRotina(rotina)}
 <h2>Por empresa</h2>${empresas}
 <h2>Por categoria</h2>${categorias}
@@ -163,7 +217,9 @@ table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}td,th{p
 h2{font-size:16px;margin:24px 0 8px;text-align:left}
 .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;text-align:left}
 .cartao{border:1px solid #e0e0e0;border-radius:10px;padding:12px}.cabeca{margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
-ol.rotina{margin:0;padding-left:18px;font-size:13px}ol.rotina li{margin-bottom:6px}.num{text-align:right;white-space:nowrap}
+ol.rotina{margin:0;padding-left:18px;font-size:13px}ol.rotina li{margin-bottom:6px}
+.hora{white-space:nowrap;width:110px;font-variant-numeric:tabular-nums}ul.agenda{margin:4px 0 0;padding-left:18px;font-size:13px}ul.agenda li{margin-bottom:4px}
+@media (max-width:480px){.hora{width:auto;white-space:normal}}.num{text-align:right;white-space:nowrap}
 .tag{color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;text-transform:uppercase}
 ul.chips{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px;text-align:left}
 ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13px}</style>

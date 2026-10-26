@@ -158,3 +158,33 @@ describe('rotina do dia por empresa', () => {
     expect(r.body).toContain('<strong>Cotar:</strong> Cliente pede cotação urgente');
   });
 });
+
+describe('agenda sugerida', () => {
+  it('põe urgentes de manhã, cobranças à tarde e deixa almoço livre', async () => {
+    const { montarAgenda } = await import('../src/painel.js');
+    const grupos = [
+      {
+        empresa: 'Kas Agenciamentos',
+        total: 3,
+        urgentes: 1,
+        itens: [
+          { recebidaEm: new Date(), conversa: 'A', prioridade: 'urgente', acaoSugerida: 'cobrar', resumo: 'Carga parada', texto: null, tipo: 'conversation' },
+          { recebidaEm: new Date(), conversa: 'B', prioridade: 'media', acaoSugerida: 'cotar', resumo: 'Cotação', texto: null, tipo: 'conversation' },
+          { recebidaEm: new Date(), conversa: 'C', prioridade: 'media', acaoSugerida: 'pagar', resumo: 'Boleto', texto: null, tipo: 'conversation' },
+        ],
+      },
+    ];
+    const blocos = montarAgenda(grupos);
+    expect(blocos[0]!.inicio).toBe('09:00');
+    expect(blocos[0]!.itens[0]!.assunto).toBe('Carga parada');
+    expect(blocos[1]!.itens[0]!.assunto).toBe('Cotação');
+    expect(blocos[3]!.itens[0]!.assunto).toBe('Boleto');
+    expect(blocos[2]!.fixo).toBe('Pausa sugerida');
+  });
+  it('mostra a agenda na página com aviso de sugestão', async () => {
+    const { app } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth(SENHA) } });
+    expect(r.body).toContain('Agenda sugerida de hoje');
+    expect(r.body).toContain('ainda não está na sua agenda');
+  });
+});
