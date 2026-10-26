@@ -1,10 +1,50 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { lerConfig } from '../src/config.js';
-import { registrarPainel } from '../src/painel.js';
+import type { ResumoDiario } from '../src/repositorio.js';
+import { paginaPainel, registrarPainel } from '../src/painel.js';
 
 const SENHA = 'senha-do-painel-123';
 const auth = (senha: string) => `Basic ${Buffer.from(`thiago:${senha}`).toString('base64')}`;
+
+const resumoDiarioFake = (): ResumoDiario => ({
+  dia: '23/10',
+  totalHoje: 4,
+  porEmpresa: [
+    { empresa: 'Kas Agenciamentos', total: 3 },
+    { empresa: 'Sem empresa', total: 1 },
+  ],
+  porCategoria: [{ categoria: 'Cotação e comercial', total: 4 }],
+  recentes: [
+    {
+      recebidaEm: new Date('2026-10-23T18:00:00Z'),
+      conversa: 'Maria',
+      empresa: 'Kas Agenciamentos',
+      categoria: 'Cotação e comercial',
+      prioridade: 'alta',
+      acaoSugerida: 'cotar',
+      resumo: 'Cliente pede cotação de frete',
+      confianca: 0.92,
+      texto: 'quanto fica um 40HC?',
+      tipo: 'conversation',
+    },
+  ],
+  revisao: [
+    {
+      recebidaEm: new Date('2026-10-23T17:00:00Z'),
+      conversa: '<script>x</script>',
+      empresa: null,
+      categoria: null,
+      prioridade: 'media',
+      acaoSugerida: 'acompanhar',
+      resumo: 'A IA ficou em dúvida',
+      confianca: 0.2,
+      texto: 'oi',
+      tipo: 'conversation',
+    },
+  ],
+  sugestoes: [{ nome: 'Transportadora XPTO', qtd: 2 }],
+});
 
 function montar(estado: string) {
   const app = Fastify();
@@ -16,8 +56,9 @@ function montar(estado: string) {
       { recebidaEm: new Date('2026-10-23T18:00:00Z'), conversa: 'Maria', deMim: false, tipo: 'conversation', texto: '<script>x</script> oi' },
     ],
   }));
-  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo });
-  return { app, qrCode };
+  const resumoDiario = vi.fn(async () => resumoDiarioFake());
+  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo, resumoDiario });
+  return { app, qrCode, resumoDiario };
 }
 
 describe('GET /conexao', () => {
@@ -43,6 +84,40 @@ describe('GET /conexao', () => {
     expect(r.body).toContain('23/10, 15:00');
     expect(r.body).not.toContain('<script>');
     expect(qrCode).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /painel', () => {
+  it('pede senha', async () => {
+    const { app, resumoDiario } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth('errada') } });
+    expect(r.statusCode).toBe(401);
+    expect(resumoDiario).not.toHaveBeenCalled();
+  });
+
+  it('mostra o resumo do dia, as classificações e a revisão', async () => {
+    const { app } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth(SENHA) } });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toContain('<strong>4</strong> mensagens classificadas hoje');
+    expect(r.body).toContain('Kas Agenciamentos');
+    expect(r.body).toContain('Cliente pede cotação de frete');
+    expect(r.body).toContain('Precisa de revisão');
+    expect(r.body).toContain('Transportadora XPTO');
+  });
+
+  it('escapa texto de terceiros', async () => {
+    const { app } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth(SENHA) } });
+    expect(r.body).not.toContain('<script>x</script>');
+  });
+});
+
+describe('paginaPainel', () => {
+  it('mostra aviso quando não há nada para revisar', () => {
+    const html = paginaPainel({ ...resumoDiarioFake(), revisao: [], sugestoes: [] });
+    expect(html).toContain('Nada pendente de revisão');
+    expect(html).not.toContain('Empresas sugeridas');
   });
 });
 

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { QrCode } from './evolution.js';
-import type { ResumoMensagens } from './repositorio.js';
+import type { LinhaClassificada, ResumoDiario, ResumoMensagens } from './repositorio.js';
 
 export interface DepsPainel {
   senha: string;
@@ -9,6 +9,7 @@ export interface DepsPainel {
   estado: () => Promise<string>;
   qrCode: () => Promise<QrCode>;
   resumo: () => Promise<ResumoMensagens>;
+  resumoDiario: () => Promise<ResumoDiario>;
 }
 
 /** Texto de mensagem vem de terceiros: sempre escapar antes de pôr no HTML. */
@@ -36,6 +37,63 @@ function tabelaResumo(r: ResumoMensagens): string {
 <table><thead><tr><th>Quando</th><th>Conversa</th><th>Mensagem</th></tr></thead><tbody>${linhas}</tbody></table>`;
 }
 
+const PRIORIDADE_COR: Record<string, string> = {
+  urgente: '#c5221f',
+  alta: '#e8710a',
+  media: '#1a73e8',
+  baixa: '#5f6368',
+};
+
+function etiquetaPrioridade(p: string | null): string {
+  if (!p) return '';
+  return `<span class="tag" style="background:${PRIORIDADE_COR[p] ?? '#5f6368'}">${escapar(p)}</span>`;
+}
+
+function confiancaPct(c: number | null): string {
+  return c === null ? '—' : `${Math.round(c * 100)}%`;
+}
+
+function linhaClassificada(m: LinhaClassificada): string {
+  const assunto = m.resumo ? escapar(m.resumo) : m.texto ? escapar(m.texto.slice(0, 90)) : `<em>${escapar(m.tipo)}</em>`;
+  const empresa = m.empresa ? escapar(m.empresa) : '<em>—</em>';
+  const categoria = m.categoria ? escapar(m.categoria) : '<em>—</em>';
+  return `<tr><td>${hora.format(m.recebidaEm)}</td><td>${escapar(m.conversa)}</td>
+<td><strong>${empresa}</strong><br><span class="dica">${categoria}</span></td>
+<td>${etiquetaPrioridade(m.prioridade)} ${assunto}</td><td class="num">${confiancaPct(m.confianca)}</td></tr>`;
+}
+
+function listaContagem(itens: { nome: string; total: number }[]): string {
+  if (!itens.length) return '<p class="dica">Nada ainda hoje.</p>';
+  return `<ul class="chips">${itens
+    .map((i) => `<li>${escapar(i.nome)} <strong>${i.total}</strong></li>`)
+    .join('')}</ul>`;
+}
+
+function tabela(titulo: string, linhas: LinhaClassificada[], vazio: string): string {
+  if (!linhas.length) return `<h2>${titulo}</h2><p class="dica">${vazio}</p>`;
+  const corpo = linhas.map(linhaClassificada).join('');
+  return `<h2>${titulo}</h2><table><thead><tr><th>Quando</th><th>Conversa</th><th>Empresa / categoria</th><th>Assunto</th><th class="num">Conf.</th></tr></thead><tbody>${corpo}</tbody></table>`;
+}
+
+/** Monta a página /painel a partir do resumo do dia. Função pura, para testar o HTML. */
+export function paginaPainel(r: ResumoDiario): string {
+  const empresas = listaContagem(r.porEmpresa.map((e) => ({ nome: e.empresa, total: e.total })));
+  const categorias = listaContagem(r.porCategoria.map((c) => ({ nome: c.categoria, total: c.total })));
+  const sugestoes = r.sugestoes.length
+    ? `<h2>Empresas sugeridas</h2><p class="dica">A Ana viu contatos que podem ser novas empresas:</p>${listaContagem(
+        r.sugestoes.map((s) => ({ nome: s.nome, total: s.qtd })),
+      )}`
+    : '';
+  const corpo = `<p><strong>${r.totalHoje}</strong> mensagens classificadas hoje (${escapar(r.dia)})</p>
+<h2>Por empresa</h2>${empresas}
+<h2>Por categoria</h2>${categorias}
+${tabela('Precisa de revisão', r.revisao, 'Nada pendente de revisão. 👍')}
+${tabela('Últimas classificações', r.recentes, 'Nenhuma mensagem classificada ainda.')}
+${sugestoes}
+<p class="dica"><a href="/conexao">Ver estado da conexão</a> · atualiza a cada 2 min.</p>`;
+  return pagina(corpo, 120);
+}
+
 function senhaConfere(cabecalho: string | undefined, senha: string): boolean {
   if (!cabecalho?.startsWith('Basic ')) return false;
   const decodificado = Buffer.from(cabecalho.slice(6), 'base64').toString('utf8');
@@ -50,7 +108,11 @@ function pagina(corpo: string, recarregarEm?: number): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">${meta}<title>Ana · Conexão</title>
 <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;text-align:center;color:#222}
 img{width:100%;max-width:320px;border:1px solid #ddd;border-radius:8px}
-table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}td,th{padding:6px 4px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word}.ok{color:#137333}.dica{color:#666;font-size:14px}</style>
+table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}td,th{padding:6px 4px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word}.ok{color:#137333}.dica{color:#666;font-size:14px}
+h2{font-size:16px;margin:24px 0 8px;text-align:left}.num{text-align:right;white-space:nowrap}
+.tag{color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;text-transform:uppercase}
+ul.chips{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px;text-align:left}
+ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13px}</style>
 </head><body><h1>Ana</h1>${corpo}</body></html>`;
 }
 
@@ -78,5 +140,13 @@ export function registrarPainel(app: FastifyInstance, deps: DepsPainel) {
 <p class="dica">A página atualiza sozinha a cada 20 segundos.</p>`,
       20,
     );
+  });
+
+  app.get('/painel', async (req, reply) => {
+    if (!senhaConfere(req.headers.authorization, deps.senha)) {
+      return reply.code(401).header('www-authenticate', 'Basic realm="Ana", charset="UTF-8"').send('Senha necessária');
+    }
+    reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
+    return paginaPainel(await deps.resumoDiario());
   });
 }
