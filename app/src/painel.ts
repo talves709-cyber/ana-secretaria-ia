@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { QrCode } from './evolution.js';
-import type { LinhaClassificada, ResumoDiario, ResumoMensagens, RetencaoResumo } from './repositorio.js';
+import type { LinhaClassificada, ResumoDiario, ResumoMensagens, RetencaoResumo, RotinaEmpresa } from './repositorio.js';
 
 export interface DepsPainel {
   senha: string;
@@ -11,6 +11,7 @@ export interface DepsPainel {
   resumo: () => Promise<ResumoMensagens>;
   resumoDiario: () => Promise<ResumoDiario>;
   retencao: () => Promise<RetencaoResumo>;
+  rotina: () => Promise<RotinaEmpresa[]>;
 }
 
 /** Texto de mensagem vem de terceiros: sempre escapar antes de pôr no HTML. */
@@ -93,7 +94,38 @@ function blocoRetencao(t: RetencaoResumo): string {
 </tbody></table>`;
 }
 
-export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo): string {
+const VERBO: Record<string, string> = {
+  responder: 'Responder',
+  cotar: 'Cotar',
+  pagar: 'Pagar',
+  cobrar: 'Cobrar',
+  agendar: 'Agendar',
+  acompanhar: 'Acompanhar',
+};
+
+/** Um cartão por empresa, com a rotina de hoje ordenada por urgência. */
+function blocoRotina(grupos: RotinaEmpresa[]): string {
+  if (!grupos.length) return '<h2>Rotina de hoje</h2><p class="dica">Nenhuma ação pendente hoje.</p>';
+  const cartoes = grupos
+    .map((g) => {
+      const cabeca = `<div class="cartao"><div class="cabeca"><strong>${escapar(g.empresa)}</strong>
+<span class="dica">${g.total} ${g.total === 1 ? 'ação' : 'ações'} hoje</span>${
+        g.urgentes ? ` <span class="tag" style="background:#c5221f">${g.urgentes} urgente${g.urgentes > 1 ? 's' : ''}</span>` : ''
+      }</div>`;
+      const itens = g.itens
+        .map((i) => {
+          const verbo = VERBO[i.acaoSugerida ?? ''] ?? 'Acompanhar';
+          const assunto = i.resumo ? escapar(i.resumo) : i.texto ? escapar(i.texto.slice(0, 90)) : `<em>${escapar(i.tipo)}</em>`;
+          return `<li>${etiquetaPrioridade(i.prioridade)} <strong>${verbo}:</strong> ${assunto} <span class="dica">· ${escapar(i.conversa)} · ${hora.format(i.recebidaEm)}</span></li>`;
+        })
+        .join('');
+      return `${cabeca}<ol class="rotina">${itens}</ol></div>`;
+    })
+    .join('');
+  return `<h2>Rotina de hoje, por empresa</h2><div class="grade">${cartoes}</div>`;
+}
+
+export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo, rotina: RotinaEmpresa[] = []): string {
   const empresas = listaContagem(r.porEmpresa.map((e) => ({ nome: e.empresa, total: e.total })));
   const categorias = listaContagem(r.porCategoria.map((c) => ({ nome: c.categoria, total: c.total })));
   const sugestoes = r.sugestoes.length
@@ -102,6 +134,7 @@ export function paginaPainel(r: ResumoDiario, retencao?: RetencaoResumo): string
       )}`
     : '';
   const corpo = `<p><strong>${r.totalHoje}</strong> mensagens classificadas hoje (${escapar(r.dia)})</p>
+${blocoRotina(rotina)}
 <h2>Por empresa</h2>${empresas}
 <h2>Por categoria</h2>${categorias}
 ${tabela('Precisa de revisão', r.revisao, 'Nada pendente de revisão. 👍')}
@@ -127,7 +160,10 @@ function pagina(corpo: string, recarregarEm?: number): string {
 <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;text-align:center;color:#222}
 img{width:100%;max-width:320px;border:1px solid #ddd;border-radius:8px}
 table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}td,th{padding:6px 4px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word}.ok{color:#137333}.dica{color:#666;font-size:14px}
-h2{font-size:16px;margin:24px 0 8px;text-align:left}.num{text-align:right;white-space:nowrap}
+h2{font-size:16px;margin:24px 0 8px;text-align:left}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;text-align:left}
+.cartao{border:1px solid #e0e0e0;border-radius:10px;padding:12px}.cabeca{margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+ol.rotina{margin:0;padding-left:18px;font-size:13px}ol.rotina li{margin-bottom:6px}.num{text-align:right;white-space:nowrap}
 .tag{color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;text-transform:uppercase}
 ul.chips{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px;text-align:left}
 ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13px}</style>
@@ -165,7 +201,7 @@ export function registrarPainel(app: FastifyInstance, deps: DepsPainel) {
       return reply.code(401).header('www-authenticate', 'Basic realm="Ana", charset="UTF-8"').send('Senha necessária');
     }
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
-    const [resumo, retencao] = await Promise.all([deps.resumoDiario(), deps.retencao()]);
-    return paginaPainel(resumo, retencao);
+    const [resumo, retencao, rotina] = await Promise.all([deps.resumoDiario(), deps.retencao(), deps.rotina()]);
+    return paginaPainel(resumo, retencao, rotina);
   });
 }

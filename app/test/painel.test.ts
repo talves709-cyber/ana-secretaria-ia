@@ -58,7 +58,8 @@ function montar(estado: string) {
   }));
   const resumoDiario = vi.fn(async () => resumoDiarioFake());
   const retencao = vi.fn(async () => ({ limiteMeses: 4, antigas: 5, podeApagar: 3, revisar: 1, semClassificacao: 1, maisAntiga: new Date('2026-05-01T12:00:00Z') }));
-  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo, resumoDiario, retencao });
+  const rotina = vi.fn(async () => [{ empresa: 'Kas Agenciamentos', total: 3, urgentes: 1, itens: [{ recebidaEm: new Date('2026-10-23T18:00:00Z'), conversa: 'Maria', prioridade: 'urgente', acaoSugerida: 'cotar', resumo: 'Cliente pede cotação urgente', texto: 'oi', tipo: 'conversation' }] }]);
+  registrarPainel(app, { senha: SENHA, estado: async () => estado, qrCode, resumo, resumoDiario, retencao, rotina });
   return { app, qrCode, resumoDiario };
 }
 
@@ -145,5 +146,15 @@ describe('retenção: só mostra, nunca apaga', () => {
     expect(r.body).toContain('Mensagens com mais de 4 meses');
     expect(r.body).toContain('Não apague nada ainda');
     expect(r.body).toContain('Já podem ser apagadas');
+  });
+});
+
+describe('rotina do dia por empresa', () => {
+  it('mostra cada empresa com a ação e a urgência', async () => {
+    const { app } = montar('open');
+    const r = await app.inject({ url: '/painel', headers: { authorization: auth(SENHA) } });
+    expect(r.body).toContain('Rotina de hoje, por empresa');
+    expect(r.body).toContain('1 urgente');
+    expect(r.body).toContain('<strong>Cotar:</strong> Cliente pede cotação urgente');
   });
 });

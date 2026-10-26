@@ -249,3 +249,63 @@ export async function retencaoResumo(db: Db, limiteMeses = 4, limiarRevisao = 0.
     maisAntiga: linha.mais_antiga,
   };
 }
+
+export interface RotinaItem {
+  recebidaEm: Date;
+  conversa: string;
+  prioridade: string | null;
+  acaoSugerida: string | null;
+  resumo: string | null;
+  texto: string | null;
+  tipo: string;
+}
+
+export interface RotinaEmpresa {
+  empresa: string;
+  total: number;
+  urgentes: number;
+  itens: RotinaItem[];
+}
+
+const ORDEM_PRIORIDADE = `CASE c.prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END`;
+
+/**
+ * Rotina sugerida de hoje, por empresa: o que pede ação (tudo menos "arquivar"),
+ * do mais urgente para o menos. Cada empresa mostra até `porEmpresa` itens.
+ */
+export async function rotinaDoDia(db: Db, porEmpresa = 8): Promise<RotinaEmpresa[]> {
+  const r = await db.query(
+    `SELECT COALESCE(e.nome, 'Sem empresa') AS empresa, c.prioridade, c.acao_sugerida, c.resumo,
+            m.recebida_em, COALESCE(cv.nome, k.nome, cv.jid) AS conversa, m.texto, m.tipo
+     FROM classificacoes c
+     JOIN mensagens m ON m.id = c.mensagem_id
+     JOIN conversas cv ON cv.id = m.conversa_id
+     LEFT JOIN contatos k ON k.id = cv.contato_id
+     LEFT JOIN empresas e ON e.id = c.empresa_id
+     WHERE c.criado_em >= date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo'
+       AND c.acao_sugerida IS DISTINCT FROM 'arquivar'
+     ORDER BY ${ORDEM_PRIORIDADE}, m.recebida_em DESC`,
+  );
+  const grupos = new Map<string, RotinaEmpresa>();
+  for (const row of r.rows as any[]) {
+    let g = grupos.get(row.empresa);
+    if (!g) {
+      g = { empresa: row.empresa, total: 0, urgentes: 0, itens: [] };
+      grupos.set(row.empresa, g);
+    }
+    g.total += 1;
+    if (row.prioridade === 'urgente') g.urgentes += 1;
+    if (g.itens.length < porEmpresa) {
+      g.itens.push({
+        recebidaEm: row.recebida_em,
+        conversa: row.conversa,
+        prioridade: row.prioridade,
+        acaoSugerida: row.acao_sugerida,
+        resumo: row.resumo,
+        texto: row.texto,
+        tipo: row.tipo,
+      });
+    }
+  }
+  return [...grupos.values()].sort((a, b) => b.urgentes - a.urgentes || b.total - a.total);
+}
