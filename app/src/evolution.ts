@@ -84,6 +84,17 @@ export class Evolution {
     return r.instance?.state ?? 'desconhecido';
   }
 
+  /** Envia texto a um número ou, em grupo, ao JID do grupo. Devolve o id da mensagem enviada. */
+  async enviarTexto(instancia: string, numero: string, texto: string): Promise<{ id: string }> {
+    const r = await this.chamar<{ key?: { id?: string } }>('POST', `/message/sendText/${encodeURIComponent(instancia)}`, {
+      number: numero,
+      text: texto,
+    });
+    const id = r.key?.id;
+    if (!id) throw new Error('Evolution sendText não devolveu key.id');
+    return { id };
+  }
+
   /** Cria a instância com o webhook se ela ainda não existir. Devolve o estado atual. */
   async garantirInstancia(nome: string, webhookUrl: string, webhookToken: string): Promise<string> {
     try {
