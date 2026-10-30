@@ -10,11 +10,14 @@ import { classificarConversa, perguntarIA } from './classificador.js';
 import { registrarUsoSeguro, gastoDoMes, situacaoLimite } from './uso-ia.js';
 import { analisarConversa, perguntarEspecialista } from './especialista.js';
 import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa, nomeDaEmpresa, transacaoDoEspecialista } from './especialista-dados.js';
+import { avisarUrgente, cicloAna, type DepsAna } from './ana.js';
 import { demandasAbertasDaConversa } from './demandas.js';
 import {
   agendarClassificacao,
+  agendarCicloAna,
   criarFila,
   criarWorker,
+  FILA_ANA,
   FILA_CLASSIFICAR,
   FILA_COMANDOS,
   FILA_ESPECIALISTA,
@@ -47,6 +50,18 @@ if (comandosLigados) {
   console.log('Comandos pelo WhatsApp ligados');
 }
 const filaComandos = comandosLigados ? criarFila<JobComando>(FILA_COMANDOS, config.REDIS_URL) : null;
+
+// Mensagem para o próprio Thiago: não passa pelo Executor (ele é só para terceiros).
+const responderAoDono = async (texto: string) => {
+  await evolution.enviarTexto(config.EVOLUTION_INSTANCE, donoJids[0]!, texto);
+};
+const depsAna: DepsAna = {
+  db,
+  enviar: responderAoDono,
+  limiteMensalUsd: config.IA_LIMITE_MENSAL_USD,
+  silencioInicio: config.SILENCIO_INICIO,
+  silencioFim: config.SILENCIO_FIM,
+};
 
 const filaClassificar = criarFila<JobClassificar>(FILA_CLASSIFICAR, config.REDIS_URL);
 const filaEspecialista = criarFila<JobEspecialista>(FILA_ESPECIALISTA, config.REDIS_URL);
@@ -129,8 +144,9 @@ const workerEspecialista = anthropic
             ),
           registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'especialista', modelo, uso),
           podeGastar: async () => situacaoLimite(await gastoDoMes(db), config.IA_LIMITE_MENSAL_USD) !== 'estourado',
-          // Placeholder: a Task 11 troca pelo aviso real ao Thiago.
-          avisarUrgente: async (demandaId) => console.log(`urgente: demanda ${demandaId}`),
+          avisarUrgente: async (demandaId) => {
+            if (comandosLigados) await avisarUrgente(depsAna, demandaId);
+          },
         },
         job.data.conversaId,
       );
@@ -166,10 +182,7 @@ const workerComandos = comandosLigados
               })
             : async () => null,
           ...confirmacoesDoBanco(db),
-          // Mensagem para o próprio Thiago: não passa pelo Executor (ele é só para terceiros).
-          responder: async (t) => {
-            await evolution.enviarTexto(config.EVOLUTION_INSTANCE, donoJids[0]!, t);
-          },
+          responder: responderAoDono,
         },
         texto,
       );
@@ -178,6 +191,17 @@ const workerComandos = comandosLigados
 workerComandos?.on('failed', (job, erro) =>
   console.error(`Comando da mensagem ${job?.data.mensagemId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
 );
+// Ciclo da Ana: a cada 5 minutos junta os pedidos novos e avisa o Thiago (só com DONO_WHATSAPP).
+const filaAna = comandosLigados ? criarFila(FILA_ANA, config.REDIS_URL) : null;
+if (filaAna) await agendarCicloAna(filaAna);
+const workerAna = comandosLigados
+  ? criarWorker(FILA_ANA, config.REDIS_URL, 1, async () => {
+      const n = await cicloAna(depsAna);
+      if (n) console.log(`Ana avisou ${n} pedidos`);
+    })
+  : null;
+workerAna?.on('failed', (job, erro) => console.error(`Ciclo da Ana falhou (tentativa ${job?.attemptsMade}): ${erro.message}`));
+
 const servidor = criarServidor({
   token: config.WEBHOOK_TOKEN,
   gravarEvento: (instancia, evento, payload) => gravarEvento(db, instancia, evento, payload),
@@ -216,10 +240,12 @@ async function encerrar() {
   await workerClassificar?.close();
   await workerEspecialista?.close();
   await workerComandos?.close();
+  await workerAna?.close();
   await fila.close();
   await filaClassificar.close();
   await filaEspecialista.close();
   await filaComandos?.close();
+  await filaAna?.close();
   await db.end();
   process.exit(0);
 }

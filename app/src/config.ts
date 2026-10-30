@@ -39,6 +39,9 @@ const esquema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? '').split(',').map((j) => j.trim()).filter(Boolean)),
+  // Janela de silêncio da Ana (hora cheia, fuso de São Paulo): sem avisos de INICIO até FIM, exceto urgentes.
+  SILENCIO_INICIO: z.coerce.number().int().min(0).max(23).default(19),
+  SILENCIO_FIM: z.coerce.number().int().min(0).max(23).default(8),
   CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
 });
 

@@ -5,6 +5,10 @@ export const FILA_EVENTOS = 'eventos';
 export const FILA_CLASSIFICAR = 'classificar';
 export const FILA_ESPECIALISTA = 'especialista';
 export const FILA_COMANDOS = 'comandos';
+export const FILA_ANA = 'ana';
+
+/** Intervalo do ciclo em que a Ana junta os pedidos novos e avisa o Thiago. */
+export const INTERVALO_CICLO_ANA_MS = 5 * 60_000;
 
 export interface JobEvento {
   eventoId: number;
@@ -60,4 +64,9 @@ export async function agendarClassificacao(fila: Queue<JobClassificar>, conversa
     { conversaId },
     { delay: JANELA_AGRUPAR_MS, deduplication: { id: `conversa-${conversaId}`, ttl: JANELA_AGRUPAR_MS } },
   );
+}
+
+/** Registra (ou atualiza) o job repetido que roda o ciclo da Ana a cada 5 minutos. */
+export async function agendarCicloAna(fila: Queue) {
+  await fila.upsertJobScheduler('ciclo', { every: INTERVALO_CICLO_ANA_MS }, { name: 'ciclo' });
 }
