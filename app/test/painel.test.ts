@@ -164,7 +164,16 @@ describe('login', () => {
 
   it('não redireciona para fora do site', async () => {
     const { app } = montar('open');
-    for (const volta of ['//evil.com', 'https://evil.com', '/\\evil.com']) {
+    for (const volta of [
+      '//evil.com',
+      'https://evil.com',
+      '/\\evil.com',
+      '/%09/evil.com',
+      '/%0a/evil.com',
+      '/%0D/evil.com',
+      '/%5cevil.com',
+      '/\t/evil.com',
+    ]) {
       const r = await entrar(app, SENHA, volta);
       expect(r.headers.location).toBe('/painel');
     }

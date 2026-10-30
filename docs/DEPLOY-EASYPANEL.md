@@ -47,6 +47,10 @@ Em **Domains > Add domain**: serviço `app`, porta `3100`, HTTPS ligado. Pode us
 domínio gratuito que o Easypanel sugere ou um subdomínio seu (ex.: `ana.seudominio.com.br`,
 com um registro A apontando para o IP da VPS).
 
+A porta do app (`3100`) não pode ser publicada fora do Traefik: o app confia em um salto de
+proxy (`X-Forwarded-For`) para descobrir o IP de quem tenta entrar no painel. Exposta direto,
+o limite de tentativas poderia ser burlado.
+
 Só o `app` recebe domínio. Evolution, Postgres e Redis ficam só na rede interna.
 
 ## 5. Conectar o WhatsApp
