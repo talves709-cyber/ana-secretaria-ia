@@ -101,6 +101,57 @@ No Easypanel, abra o console do serviço `backup` e rode `/backup.sh`. Deve term
 
 4. Suba o `app` e o `evolution` de novo.
 
+## Primeira subida das Partes 0 e 1
+
+Roteiro para quem faz o merge e o deploy das Partes 0 e 1 (login, backup, demandas e CRM,
+comandos pelo WhatsApp, pacotes de pedidos, painel do pipeline).
+
+### Variáveis novas no Environment
+
+Cole na aba **Environment** (só os nomes aqui; valores no Easypanel). Segredos: `openssl rand -hex 32`.
+
+| Variável | O que faz | Valor |
+| --- | --- | --- |
+| `SESSAO_SEGREDO` | assina o cookie do painel | segredo novo (`openssl rand -hex 32`) |
+| `DONO_WHATSAPP` | número do Thiago, só dígitos com DDI; vazio desliga comandos e avisos | o número do WhatsApp dele |
+| `DONO_JIDS_EXTRA` | identificadores `...@lid` da conversa dele consigo mesmo, se o WhatsApp usar | vazio; preencher só se os comandos não forem reconhecidos |
+| `CLAUDE_MODELO_ESPECIALISTA` | modelo do especialista | `claude-opus-5-5` |
+| `CLAUDE_ESFORCO_ESPECIALISTA` | esforço do especialista | `medium` |
+| `IA_LIMITE_MENSAL_USD` | teto mensal de IA, com aviso a 80% | a decidir (exemplo no `.env.example`) |
+| `SILENCIO_INICIO`, `SILENCIO_FIM` | silêncio da Ana, hora cheia | `19` e `8` |
+| `BACKUP_DESTINO` | pasta do backup | `gdrive:ana-backups` |
+| `RCLONE_CONFIG_GDRIVE_TYPE` | tipo do remote | `drive` |
+| `RCLONE_CONFIG_GDRIVE_SCOPE` | escopo | `drive.file` |
+| `RCLONE_CONFIG_GDRIVE_TOKEN` | token do Drive | JSON do passo abaixo |
+| `RCLONE_CONFIG_GDRIVE_CLIENT_ID`, `..._CLIENT_SECRET` | credenciais OAuth próprias (opcional) | vazio |
+
+### Passo do token do Google Drive
+
+Siga a seção 6 (`rclone authorize` no PC, colar o JSON em `RCLONE_CONFIG_GDRIVE_TOKEN`) e
+rode `/backup.sh` no console do serviço `backup`. Deve terminar com `[backup] ok` e o
+arquivo aparecer na pasta do Drive.
+
+### Subida
+
+1. Faça o merge na `main` e clique em **Deploy**. Nos logs do `app`: `Migrações aplicadas`
+   (a `003` entra aqui).
+2. Confira que o `backup` subiu sem erro.
+
+### Teste de fumaça guiado (com o Thiago)
+
+1. Abrir `/painel` no domínio do painel: deve cair em `/entrar`. Entrar com a senha.
+2. Pedir a alguém de confiança que mande uma mensagem de teste em conversa individual.
+3. Em até cerca de 1 minuto aparece o cartão em **Novo** em `/painel/pipeline`. Fora do
+   silêncio (19h às 8h, fins de semana e feriados), em até 5 minutos chega o pacote "Ana:" na
+   conversa do Thiago consigo mesmo.
+   **Conferir no celular se essa mensagem notifica.** Mensagem enviada por aparelho conectado
+   para a própria conversa pode não gerar notificação. Se não notificar, anotar na Bíblia
+   (pendências) e discutir um número próprio para a Ana.
+4. Responder `ok <N>`: a resposta sai na conversa de teste e o cartão vai para **Concluído**.
+5. Testar `<N> muda: ...` (nova versão e pedido de confirmação) e um texto livre com "sim".
+6. Se os comandos não forem reconhecidos, ver nos logs o identificador da conversa dele e
+   colocar em `DONO_JIDS_EXTRA`.
+
 ## Atualizar depois
 
 A cada merge na `main`, clique em **Deploy** no Easypanel (ou ligue o deploy automático

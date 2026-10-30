@@ -17,7 +17,7 @@ Status: `a fazer`, `em andamento`, `em revisão`, `feito`.
 | 1.8 | HTTPS na frente do app | claude | feito | domínio do Easypanel (Traefik), ver docs/DEPLOY-EASYPANEL.md |
 | 1.9 | Deploy na VPS Hostinger (Easypanel) | claude | feito | no ar em 2026-10-23, WhatsApp conectado |
 | 1.11 | Página /conexao mostra total e últimas mensagens | claude | em revisão | |
-| 1.10 | Backup diário do Postgres para fora da VPS | livre | a fazer | |
+| 1.10 | Backup diário do Postgres para fora da VPS | claude | em revisão | serviço `backup` para o Google Drive; falta gerar o token do Drive |
 
 ## Decisões do Thiago (2026-10-23)
 
@@ -50,3 +50,14 @@ Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depoi
 | # | Tarefa | Dono | Status | Notas |
 |---|---|---|---|---|
 | 4.0 | Especificação + Bíblia | claude | em revisão | `docs/superpowers/specs/2026-10-27-secretaria-executiva-multiagente-design.md`, `docs/BIBLIA.md` |
+| 4.1 | Parte 0: login do painel (`/entrar`, sessão assinada) | claude | em revisão | |
+| 4.2 | Parte 1: demandas, CRM, especialista, custo de IA | claude | em revisão | migração `003` |
+| 4.3 | Parte 1: comandos do Thiago, Executor de envio, pacotes e silêncio | claude | em revisão | |
+| 4.4 | Parte 1: painel do pipeline, ficha do cliente, bases | claude | em revisão | `/painel/pipeline` |
+| 4.5 | Primeira subida das Partes 0 e 1 e teste de fumaça com o Thiago | livre | a fazer | roteiro em `docs/DEPLOY-EASYPANEL.md`; checar notificação no celular |
+| 4.6 | Firewall da VPS (Task 3) | livre | a fazer | aguarda o IP do Thiago |
+| 4.7 | Token do Google Drive para o backup | livre | a fazer | `rclone authorize`, ver deploy |
+| 4.8 | Parte 2: agenda e lembretes (inclui "Agendado com data passada") | livre | a fazer | depende de autorização Microsoft/Google |
+| 4.9 | Parte 3: resumos 8h30 e 18h, cobranças, rotinas | livre | a fazer | |
+| 4.10 | Parte 4: e-mail e mesclagem de clientes duplicados | livre | a fazer | depende de autorização Microsoft (TI) |
+| 4.11 | Parte 5: reuniões; Parte 6: GEO/SEO | livre | a fazer | |
