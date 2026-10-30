@@ -187,6 +187,29 @@ describe('enviarAprovado', () => {
     expect(await envios()).toHaveLength(1);
   });
 
+  it('depois de uma falha certa, nova aprovação reabre o mesmo envio e manda', async () => {
+    const { aprovar } = await cenario();
+    expect((await enviarAprovado(db, canalFalso(new Error('rede caiu')).canal, await aprovar())).tipo).toBe('falhou');
+    const { canal, chamadas } = canalFalso();
+    expect(await enviarAprovado(db, canal, await aprovar())).toEqual({ tipo: 'enviado' });
+    expect(chamadas).toHaveLength(1);
+    const lista = await envios();
+    expect(lista).toHaveLength(1);
+    expect(lista[0]).toMatchObject({ estado: 'enviado', erro: null, whatsapp_msg_id: 'MSG-1' });
+  });
+
+  it('com envio incerto em aberto, nova aprovação não reenvia e orienta a mudar o texto', async () => {
+    const { aprovar, demandaId } = await cenario();
+    await enviarAprovado(db, canalFalso(new ErroEnvioIncerto('timeout')).canal, await aprovar());
+    const { canal, chamadas } = canalFalso();
+    expect(await enviarAprovado(db, canal, await aprovar())).toEqual({
+      tipo: 'bloqueado',
+      motivo: `envio incerto em aberto — confira no WhatsApp; para reenviar, use "${demandaId} muda: ..."`,
+    });
+    expect(chamadas).toHaveLength(0);
+    expect((await envios())[0].estado).toBe('enviando');
+  });
+
   it('duas chamadas concorrentes enviam uma vez só', async () => {
     const { aprovar } = await cenario();
     const a1 = await aprovar();

@@ -74,13 +74,29 @@ async function reservar(db: Db, aprovacaoId: number, agora: Date): Promise<Reser
     if (r.destino !== dm.rows[0].jid) return bloqueado('destino diferente da conversa de origem');
 
     // 5. Idempotência: a chave é única por versão do rascunho.
+    const chave = `rascunho-${Number(r.id)}-v${Number(r.versao)}`;
     const ins = await c.query(
       `INSERT INTO envios (chave, rascunho_id, destino, estado) VALUES ($1, $2, $3, 'enviando')
        ON CONFLICT (chave) DO NOTHING RETURNING id`,
-      [`rascunho-${Number(r.id)}-v${Number(r.versao)}`, Number(r.id), r.destino],
+      [chave, Number(r.id), r.destino],
     );
-    if (ins.rows.length === 0) return bloqueado('esta resposta já foi enviada');
-    return { envioId: Number(ins.rows[0].id), destino: r.destino, texto: r.texto };
+    if (ins.rows.length > 0) return { envioId: Number(ins.rows[0].id), destino: r.destino, texto: r.texto };
+
+    // A chave já existe: o que fazer depende de como terminou a tentativa anterior.
+    const anterior = await c.query(`SELECT estado FROM envios WHERE chave = $1`, [chave]);
+    const estado: string = anterior.rows[0].estado;
+    if (estado === 'falhou') {
+      // Falha certa (a mensagem não saiu): reabre a mesma linha e tenta de novo.
+      const reaberto = await c.query(
+        `UPDATE envios SET estado = 'enviando', erro = NULL WHERE chave = $1 AND estado = 'falhou' RETURNING id`,
+        [chave],
+      );
+      return { envioId: Number(reaberto.rows[0].id), destino: r.destino, texto: r.texto };
+    }
+    if (estado === 'enviando') {
+      return bloqueado(`envio incerto em aberto — confira no WhatsApp; para reenviar, use "${Number(r.demanda_id)} muda: ..."`);
+    }
+    return bloqueado('esta resposta já foi enviada');
   });
 }
 
