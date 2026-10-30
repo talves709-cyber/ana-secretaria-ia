@@ -22,6 +22,7 @@ import {
   FILA_COMANDOS,
   FILA_ESPECIALISTA,
   FILA_EVENTOS,
+  removerCicloAna,
   type JobClassificar,
   type JobComando,
   type JobEspecialista,
@@ -194,7 +195,14 @@ workerComandos?.on('failed', (job, erro) =>
 );
 // Ciclo da Ana: a cada 5 minutos junta os pedidos novos e avisa o Thiago (só com DONO_WHATSAPP).
 const filaAna = comandosLigados ? criarFila(FILA_ANA, config.REDIS_URL) : null;
-if (filaAna) await agendarCicloAna(filaAna);
+if (filaAna) {
+  await agendarCicloAna(filaAna);
+} else {
+  // Desligado: remove o agendador de uma subida anterior, senão os jobs se acumulam no Redis sem worker.
+  const filaAntiga = criarFila(FILA_ANA, config.REDIS_URL);
+  await removerCicloAna(filaAntiga);
+  await filaAntiga.close();
+}
 const workerAna = comandosLigados
   ? criarWorker(FILA_ANA, config.REDIS_URL, 1, async () => {
       const n = await cicloAna(depsAna);

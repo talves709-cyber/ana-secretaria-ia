@@ -66,7 +66,14 @@ export async function agendarClassificacao(fila: Queue<JobClassificar>, conversa
   );
 }
 
+const AGENDADOR_CICLO_ANA = 'ciclo';
+
 /** Registra (ou atualiza) o job repetido que roda o ciclo da Ana a cada 5 minutos. */
-export async function agendarCicloAna(fila: Queue) {
-  await fila.upsertJobScheduler('ciclo', { every: INTERVALO_CICLO_ANA_MS }, { name: 'ciclo' });
+export async function agendarCicloAna(fila: Pick<Queue, 'upsertJobScheduler'>) {
+  await fila.upsertJobScheduler(AGENDADOR_CICLO_ANA, { every: INTERVALO_CICLO_ANA_MS }, { name: 'ciclo' });
+}
+
+/** Recurso desligado: tira o job repetido do Redis, para não acumular jobs sem worker. */
+export async function removerCicloAna(fila: Pick<Queue, 'removeJobScheduler'>) {
+  await fila.removeJobScheduler(AGENDADOR_CICLO_ANA);
 }
