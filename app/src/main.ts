@@ -4,6 +4,7 @@ import { Evolution } from './evolution.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonomia } from './classificacao-dados.js';
 import { classificarConversa, perguntarIA } from './classificador.js';
+import { registrarUso } from './uso-ia.js';
 import {
   agendarClassificacao,
   criarFila,
@@ -62,8 +63,15 @@ const workerClassificar = anthropic
           carregarTaxonomia: taxonomiaAtual,
           carregarConversa: (id) => carregarConversa(db, id),
           gravar: (ids, c, sugerida) => gravarClassificacoes(db, ids, c, sugerida),
-          perguntar: (sistema, pedido) =>
-            perguntarIA({ client: anthropic, modelo: config.CLAUDE_MODELO, esforco: config.CLAUDE_ESFORCO }, sistema, pedido),
+          perguntar: async (sistema, pedido) => {
+            const resultado = await perguntarIA(
+              { client: anthropic, modelo: config.CLAUDE_MODELO, esforco: config.CLAUDE_ESFORCO },
+              sistema,
+              pedido,
+            );
+            if (resultado.tipo === 'ok') await registrarUso(db, 'triagem', resultado.modelo, resultado.uso);
+            return resultado;
+          },
           modelo: config.CLAUDE_MODELO,
         },
         job.data.conversaId,
