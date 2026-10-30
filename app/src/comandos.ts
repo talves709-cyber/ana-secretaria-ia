@@ -18,7 +18,7 @@ function normalizar(s: string): string {
 const APROVAR = /^(?:ok|sim|aprovo|aprovado)\s+#?(\d+)$/;
 const ETAPA = /^#?(\d+)\s+(?:(aguardar|aguarda)|(comigo)|(concluir|concluido|concluida|feito))$/;
 const AGENDAR = /^#?(\d+)\s+(?:agenda|agendar)\s+(.+)$/;
-const MUDAR = /^#?(\d+)\s+mudar?\s*:?\s*(.*)$/;
+const MUDAR = /^#?(\d+)\s+mudar?(?::\s*|\s+|$)(.*)$/;
 
 /** `null` = não é comando curto (a mensagem toda vai para a IA). */
 export function interpretarComandos(texto: string): Comando[] | null {
@@ -66,10 +66,33 @@ export function interpretarComandos(texto: string): Comando[] | null {
   return comandos.length > 0 ? comandos : null;
 }
 
-// --- Datas (fuso de São Paulo, UTC-3 fixo: o Brasil não tem horário de verão desde 2019) ---
+// --- Datas (fuso America/Sao_Paulo, calculado pelo Intl) ---
 
-const OFFSET_SP_H = 3;
+const FUSO = 'America/Sao_Paulo';
 const DIAS_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+
+const formatoLocal = new Intl.DateTimeFormat('en-US', {
+  timeZone: FUSO,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+});
+
+/** Data/hora de parede em São Paulo de um instante, como UTC "falso" (para comparar e subtrair). */
+function paredeSP(ms: number): { ano: number; mes: number; dia: number; comoUtc: number } {
+  const p: Record<string, number> = {};
+  for (const { type, value } of formatoLocal.formatToParts(new Date(ms))) p[type] = Number(value);
+  return { ano: p.year, mes: p.month, dia: p.day, comoUtc: Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) };
+}
+
+/** Deslocamento (ms) de São Paulo em relação ao UTC naquele instante (negativo a oeste). */
+function deslocamentoSP(ms: number): number {
+  return paredeSP(ms).comoUtc - Math.floor(ms / 1000) * 1000;
+}
 
 interface DiaLocal {
   ano: number;
@@ -78,13 +101,16 @@ interface DiaLocal {
 }
 
 function diaLocal(d: Date): DiaLocal {
-  const l = new Date(d.getTime() - OFFSET_SP_H * 3600_000);
-  return { ano: l.getUTCFullYear(), mes: l.getUTCMonth() + 1, dia: l.getUTCDate() };
+  const { ano, mes, dia } = paredeSP(d.getTime());
+  return { ano, mes, dia };
 }
 
 /** Instante UTC de uma data/hora de parede em São Paulo (o JS normaliza dia fora do mês). */
 function instanteSP(ano: number, mes: number, dia: number, hora: number, minuto: number): Date {
-  return new Date(Date.UTC(ano, mes - 1, dia, hora + OFFSET_SP_H, minuto));
+  const parede = Date.UTC(ano, mes - 1, dia, hora, minuto);
+  let ms = parede - deslocamentoSP(parede);
+  ms = parede - deslocamentoSP(ms); // reconfere o deslocamento no instante achado
+  return new Date(ms);
 }
 
 const HORA = /^(?:as\s+)?(\d{1,2})(?:h(\d{2})?|:(\d{2}))$/;

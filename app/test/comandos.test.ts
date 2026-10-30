@@ -22,6 +22,10 @@ describe('interpretarComandos', () => {
     ['ok 14\nbla bla', null],
     ['sim\nok 14', null],
     ['14 muda:', null],
+    ['14 mudanças no pedido', null],
+    ['3 mudamos o prazo', null],
+    ['14 mudar Oi', [{ tipo: 'mudar', numero: 14, texto: 'Oi' }]],
+    ['14 muda Oi\nfim', [{ tipo: 'mudar', numero: 14, texto: 'Oi\nfim' }]],
     ['', null],
   ])('interpretarComandos(%j)', (t, esperado) => expect(interpretarComandos(t)).toEqual(esperado));
 });
