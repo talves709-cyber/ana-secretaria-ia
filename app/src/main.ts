@@ -21,6 +21,8 @@ import {
 } from './fila.js';
 import { migrar } from './migrate.js';
 import { registrarPainel } from './painel.js';
+import { registrarPainelCrm } from './painel-crm.js';
+import { enviarAprovado } from './executor.js';
 import { processarEvento } from './processar.js';
 import { gravarEvento, resumoDiario, resumoMensagens } from './repositorio.js';
 import { criarServidor } from './webhook.js';
@@ -142,6 +144,13 @@ registrarPainel(servidor, {
   qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
   resumo: () => resumoMensagens(db),
   resumoDiario: () => resumoDiario(db),
+});
+
+// Adaptador mínimo do canal; o controlador unifica com o da Task 9/11 no merge.
+const canalWhatsApp = { enviarTexto: (jid: string, texto: string) => evolution.enviarTexto(config.EVOLUTION_INSTANCE, jid, texto) };
+registrarPainelCrm(servidor, {
+  sessaoSegredo: config.SESSAO_SEGREDO,
+  acoes: { db, enviarAprovado: (id) => enviarAprovado(db, canalWhatsApp, id), agora: () => new Date() },
 });
 
 await servidor.listen({ host: '0.0.0.0', port: config.PORT });

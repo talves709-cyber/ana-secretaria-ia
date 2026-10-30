@@ -95,7 +95,7 @@ export function paginaPainel(r: ResumoDiario): string {
 ${tabela('Precisa de revisão', r.revisao, 'Nada pendente de revisão. 👍')}
 ${tabela('Últimas classificações', r.recentes, 'Nenhuma mensagem classificada ainda.')}
 ${sugestoes}
-<p class="dica"><a href="/conexao">Ver estado da conexão</a> · atualiza a cada 2 min.</p>`;
+<p class="dica"><a href="/painel/pipeline">Pipeline</a> · <a href="/painel/bases">Bases de conhecimento</a> · <a href="/conexao">Ver estado da conexão</a> · atualiza a cada 2 min.</p>`;
   return pagina(corpo, 120);
 }
 
@@ -140,7 +140,7 @@ function paginaLogin(volta: string, erro?: string): string {
 </form>`);
 }
 
-export function pagina(corpo: string, recarregarEm?: number): string {
+export function pagina(corpo: string, recarregarEm?: number, estiloExtra = ''): string {
   const meta = recarregarEm ? `<meta http-equiv="refresh" content="${recarregarEm}">` : '';
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">${meta}<title>Ana · Conexão</title>
@@ -150,7 +150,7 @@ table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}td,th{p
 h2{font-size:16px;margin:24px 0 8px;text-align:left}.num{text-align:right;white-space:nowrap}
 .tag{color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;text-transform:uppercase}
 ul.chips{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px;text-align:left}
-ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13px}</style>
+ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13px}${estiloExtra}</style>
 </head><body><h1>Ana</h1>${corpo}</body></html>`;
 }
 
