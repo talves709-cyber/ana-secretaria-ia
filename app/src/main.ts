@@ -4,7 +4,7 @@ import { Evolution } from './evolution.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonomia } from './classificacao-dados.js';
 import { classificarConversa, perguntarIA } from './classificador.js';
-import { registrarUso } from './uso-ia.js';
+import { registrarUsoSeguro } from './uso-ia.js';
 import {
   agendarClassificacao,
   criarFila,
@@ -69,7 +69,7 @@ const workerClassificar = anthropic
               sistema,
               pedido,
             );
-            if (resultado.tipo === 'ok') await registrarUso(db, 'triagem', resultado.modelo, resultado.uso);
+            if (resultado.tipo === 'ok') await registrarUsoSeguro(db, 'triagem', resultado.modelo, resultado.uso);
             return resultado;
           },
           modelo: config.CLAUDE_MODELO,

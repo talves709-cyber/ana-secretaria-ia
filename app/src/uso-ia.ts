@@ -47,3 +47,12 @@ export function situacaoLimite(gasto: number, limite: number): 'ok' | 'aviso' | 
   if (gasto >= limite * 0.8) return 'aviso';
   return 'ok';
 }
+
+/** Registra o uso sem nunca lançar: falha de contabilidade não pode refazer uma chamada de IA já paga. */
+export async function registrarUsoSeguro(db: Db, agente: AgenteIA, modelo: string, u: UsoTokens): Promise<void> {
+  try {
+    await registrarUso(db, agente, modelo, u);
+  } catch {
+    console.error(`Falha ao registrar uso de IA (agente ${agente}, modelo ${modelo})`);
+  }
+}

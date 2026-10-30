@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../src/db.js';
-import { custoUsd, gastoDoMes, registrarUso, situacaoLimite } from '../src/uso-ia.js';
+import { custoUsd, gastoDoMes, registrarUso, registrarUsoSeguro, situacaoLimite } from '../src/uso-ia.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 const zero = { entrada: 0, saida: 0, cacheLeitura: 0, cacheEscrita: 0 };
@@ -57,5 +57,15 @@ describe('registrarUso e gastoDoMes', () => {
 
   it('gastoDoMes é 0 sem registros', async () => {
     expect(await gastoDoMes(db)).toBe(0);
+  });
+});
+
+describe('registrarUsoSeguro', () => {
+  it('não lança quando o INSERT falha', async () => {
+    const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dbFalso = { query: vi.fn().mockRejectedValue(new Error('banco fora')) } as unknown as Db;
+    await expect(registrarUsoSeguro(dbFalso, 'triagem', 'claude-haiku-5-5', zero)).resolves.toBeUndefined();
+    expect(erro).toHaveBeenCalledOnce();
+    erro.mockRestore();
   });
 });
