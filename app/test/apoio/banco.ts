@@ -1,105 +1,42 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import net from 'node:net';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import EmbeddedPostgres from 'embedded-postgres';
+import { randomBytes } from 'node:crypto';
+import pg from 'pg';
+import { inject } from 'vitest';
 import { criarDb, type Db } from '../../src/db.js';
-import { migrar } from '../../src/migrate.js';
+import { BANCO_MODELO } from './global.js';
 
 // Tabelas semeadas pelas migrações (ou de controle delas): nunca são limpas.
+// Atenção: bases_conhecimento é preservada, então versões criadas dentro de um teste vazam para os
+// seguintes do mesmo arquivo; quem as cria deve removê-las ao final.
 const PRESERVADAS = ['segmentos', 'empresas', 'negocios', 'categorias', 'bases_conhecimento', 'schema_migrations'];
 
-function portaLivre(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-function lerPidDoPostmaster(dir: string): number | null {
-  const arquivo = path.join(dir, 'postmaster.pid');
-  if (!existsSync(arquivo)) return null;
-  const pid = Number.parseInt(readFileSync(arquivo, 'utf8').split('\n')[0] ?? '', 10);
-  return Number.isInteger(pid) ? pid : null;
-}
-
-// No Windows os processos-filho do servidor embutido podem sobreviver ao desligamento.
-// Encerra a árvore do postmaster e qualquer postgres.exe vindo do node_modules deste projeto
-// (nunca toca em outro Postgres instalado na máquina). A linha de comando usa barras normais.
-function encerrarPostgresDoProjeto(pid: number | null) {
-  if (process.platform !== 'win32') {
-    if (pid) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // já encerrado
-      }
-    }
-    return;
-  }
-  if (pid) {
-    try {
-      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
-    } catch {
-      // já encerrado
-    }
-  }
-  const raiz = path.resolve(process.cwd(), 'node_modules', '@embedded-postgres').replaceAll('\\', '/').replaceAll("'", "''");
-  const script =
-    `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | ` +
-    `Where-Object { $_.CommandLine -like '*${raiz}*' } | ` +
-    `ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }`;
+async function comAdmin(porta: number, fn: (c: pg.Client) => Promise<void>) {
+  const admin = new pg.Client({ connectionString: `postgres://postgres:postgres@127.0.0.1:${porta}/postgres` });
+  await admin.connect();
   try {
-    execFileSync('powershell', ['-NoProfile', '-Command', script], { stdio: 'ignore' });
-  } catch {
-    // nada a encerrar
+    await fn(admin);
+  } finally {
+    await admin.end();
   }
 }
 
-/** Sobe um Postgres real e descartável (dados em tmpdir), cria o banco `ana` e aplica as migrações. */
+/**
+ * Cria um banco novo e exclusivo deste arquivo de teste, copiado do modelo já migrado que o
+ * globalSetup preparou (um único Postgres por execução do vitest), e conecta nele.
+ */
 export async function iniciarBanco(): Promise<{ db: Db; parar(): Promise<void> }> {
-  const dir = mkdtempSync(path.join(tmpdir(), 'ana-pg-'));
-  const porta = await portaLivre();
-  const pg = new EmbeddedPostgres({
-    databaseDir: dir,
-    user: 'postgres',
-    password: 'postgres',
-    port: porta,
-    persistent: false,
-    onLog: () => {},
-    onError: () => {},
+  const porta = inject('pgPorta');
+  const nome = `ana_t_${randomBytes(6).toString('hex')}`;
+  await comAdmin(porta, async (c) => {
+    await c.query(`CREATE DATABASE ${nome} TEMPLATE ${BANCO_MODELO}`);
   });
-  await pg.initialise();
-  await pg.start();
-  await pg.createDatabase('ana');
-  const db = criarDb(`postgres://postgres:postgres@127.0.0.1:${porta}/ana`);
-  await migrar(db);
+  const db = criarDb(`postgres://postgres:postgres@127.0.0.1:${porta}/${nome}`);
   return {
     db,
     async parar() {
-      const pid = lerPidDoPostmaster(dir);
-      try {
-        await db.end();
-      } catch {
-        // pool já encerrado
-      }
-      try {
-        await pg.stop();
-      } catch {
-        // no Windows a limpeza do diretório pelo próprio pacote pode dar EBUSY; o servidor já parou
-      } finally {
-        encerrarPostgresDoProjeto(pid);
-        try {
-          rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-        } catch {
-          // diretório descartável em tmpdir
-        }
-      }
+      await db.end();
+      await comAdmin(porta, async (c) => {
+        await c.query(`DROP DATABASE IF EXISTS ${nome} WITH (FORCE)`);
+      });
     },
   };
 }

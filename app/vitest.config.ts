@@ -1,11 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
-// Cada arquivo de teste que usa banco sobe o seu próprio Postgres embutido (beforeAll) e isola
-// os testes com limparBanco (beforeEach). Limita os workers a 2 para haver no máximo 2 Postgres
-// ao mesmo tempo nesta máquina.
+// Um único Postgres embutido por execução (globalSetup), com o banco modelo já migrado; cada arquivo
+// de teste cria o seu banco a partir do modelo (CREATE DATABASE ... TEMPLATE, rápido) e isola os
+// testes com limparBanco. Como há um só servidor, o número de workers não multiplica Postgres;
+// mantém-se o padrão do vitest.
 export default defineConfig({
   test: {
-    maxWorkers: 2,
+    globalSetup: ['./test/apoio/global.ts'],
     testTimeout: 30_000,
     hookTimeout: 120_000,
   },

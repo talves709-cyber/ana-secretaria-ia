@@ -27,7 +27,7 @@ CREATE TABLE demandas (
   prazo           timestamptz,
   prazo_tem_hora  boolean NOT NULL DEFAULT false,
   etapa           text NOT NULL DEFAULT 'novo'
-                  CHECK (etapa IN ('novo', 'em_andamento', 'aguardando', 'aprovacao', 'concluida')),
+                  CHECK (etapa IN ('novo', 'comigo', 'aguardando_terceiro', 'agendado', 'concluido')),
   etapa_sugerida  text CHECK (etapa_sugerida IN ('concluir', 'agendar', 'aguardar', 'comigo')),
   prioridade      text NOT NULL CHECK (prioridade IN ('baixa', 'media', 'alta', 'urgente')),
   avisada_em      timestamptz,
@@ -135,3 +135,11 @@ CREATE TABLE avisos (
 ALTER TABLE conversas DROP CONSTRAINT conversas_modo_check;
 ALTER TABLE conversas ADD CONSTRAINT conversas_modo_check
   CHECK (modo IN ('classificar', 'arquivar', 'ignorar', 'comando'));
+
+-- Índices nas chaves estrangeiras usadas pelas consultas.
+CREATE INDEX demandas_cliente ON demandas (cliente_id);
+CREATE INDEX demandas_conversa ON demandas (conversa_id);
+CREATE INDEX demanda_itens_demanda ON demanda_itens (demanda_id);
+CREATE INDEX demanda_etapas_demanda ON demanda_etapas (demanda_id, criado_em);
+CREATE INDEX aprovacoes_rascunho ON aprovacoes (rascunho_id);
+CREATE INDEX envios_rascunho ON envios (rascunho_id);
