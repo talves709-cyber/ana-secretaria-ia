@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { Db } from '../src/db.js';
 import { criarDemanda, garantirClienteDaConversa, salvarRascunho } from '../src/demandas.js';
 import { enviarAprovado, type CanalWhatsApp } from '../src/executor.js';
-import { Evolution } from '../src/evolution.js';
+import { ErroEnvioIncerto, Evolution } from '../src/evolution.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 let db: Db;
@@ -23,13 +23,13 @@ afterEach(() => {
 
 const JID = 'conversa-a@s.whatsapp.net';
 
-function canalFalso(falha?: Error) {
+function canalFalso(falha?: Error, id: string | null = 'MSG-1') {
   const chamadas: Array<[string, string]> = [];
   const canal: CanalWhatsApp = {
     async enviarTexto(jid, texto) {
       chamadas.push([jid, texto]);
       if (falha) throw falha;
-      return { id: 'MSG-1' };
+      return { id };
     },
   };
   return { canal, chamadas };
@@ -128,13 +128,29 @@ describe('enviarAprovado', () => {
     expect(chamadas).toHaveLength(0);
   });
 
+  it('bloqueia mensagem do cliente com hora anterior mas que chegou ao sistema depois do rascunho', async () => {
+    const { aprovar, conversaId, rascunho } = await cenario();
+    const id = await aprovar();
+    await db.query(
+      `INSERT INTO mensagens (whatsapp_msg_id, conversa_id, de_mim, tipo, texto, recebida_em, criado_em)
+       VALUES ('m1', $1, false, 'texto', 'atrasada', $2::timestamptz - interval '1 minute', $2::timestamptz + interval '1 minute')`,
+      [conversaId, rascunho.criadoEm],
+    );
+    const { canal, chamadas } = canalFalso();
+    expect(await enviarAprovado(db, canal, id)).toEqual({
+      tipo: 'bloqueado',
+      motivo: 'o cliente escreveu depois da resposta pronta',
+    });
+    expect(chamadas).toHaveLength(0);
+  });
+
   it('mensagem minha ou anterior ao rascunho não bloqueia', async () => {
     const { aprovar, conversaId, rascunho } = await cenario();
     const id = await aprovar();
     await db.query(
-      `INSERT INTO mensagens (whatsapp_msg_id, conversa_id, de_mim, tipo, texto, recebida_em) VALUES
-       ('m1', $1, false, 'texto', 'antes', $2::timestamptz - interval '1 minute'),
-       ('m2', $1, true, 'texto', 'minha', $2::timestamptz + interval '1 minute')`,
+      `INSERT INTO mensagens (whatsapp_msg_id, conversa_id, de_mim, tipo, texto, recebida_em, criado_em) VALUES
+       ('m1', $1, false, 'texto', 'antes', $2::timestamptz - interval '1 minute', $2::timestamptz - interval '1 minute'),
+       ('m2', $1, true, 'texto', 'minha', $2::timestamptz + interval '1 minute', $2::timestamptz + interval '1 minute')`,
       [conversaId, rascunho.criadoEm],
     );
     const { canal } = canalFalso();
@@ -174,6 +190,40 @@ describe('enviarAprovado', () => {
     expect(chamadas).toHaveLength(1);
   });
 
+  it('canal incerto (sem resposta) deixa o envio em enviando e avisa para conferir', async () => {
+    const { aprovar } = await cenario();
+    const { canal } = canalFalso(new ErroEnvioIncerto('timeout'));
+    const res = await enviarAprovado(db, canal, await aprovar());
+    expect(res.tipo).toBe('falhou');
+    expect(res.tipo === 'falhou' && res.erro).toMatch(/^incerto: timeout/);
+    const [e] = await envios();
+    expect(e.estado).toBe('enviando');
+  });
+
+  it('enviado sem id do canal continua enviado', async () => {
+    const { aprovar } = await cenario();
+    const { canal } = canalFalso(undefined, null);
+    expect(await enviarAprovado(db, canal, await aprovar())).toEqual({ tipo: 'enviado' });
+    const [e] = await envios();
+    expect(e.estado).toBe('enviado');
+    expect(e.whatsapp_msg_id).toBeNull();
+  });
+
+  it('se gravar o sucesso falhar, não marca falhou (mensagem já saiu)', async () => {
+    const { aprovar } = await cenario();
+    const id = await aprovar();
+    const quebrado = {
+      connect: db.connect.bind(db),
+      query: (sql: string, params?: unknown[]) =>
+        sql.includes("estado = 'enviado'") ? Promise.reject(new Error('banco caiu')) : db.query(sql, params),
+    } as unknown as Db;
+    const { canal, chamadas } = canalFalso();
+    await expect(enviarAprovado(quebrado, canal, id)).rejects.toThrow('banco caiu');
+    expect(chamadas).toHaveLength(1);
+    const [e] = await envios();
+    expect(e.estado).toBe('enviando');
+  });
+
   it('registra falha do canal sem mudar nada além de envios', async () => {
     const { aprovar, demandaId } = await cenario();
     const antes = (await db.query(`SELECT etapa FROM demandas WHERE id = $1`, [demandaId])).rows[0].etapa;
@@ -199,8 +249,17 @@ describe('Evolution.enviarTexto', () => {
     expect(JSON.parse(init.body as string)).toEqual({ number: 'grupo@g.us', text: 'oi' });
   });
 
-  it('falha quando a resposta não traz key.id', async () => {
+  it('2xx sem key.id ou com corpo inválido conta como enviado, com id nulo', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 201 })));
-    await expect(new Evolution('http://evo', 'k').enviarTexto('i', 'n', 't')).rejects.toThrow(/key\.id/);
+    expect(await new Evolution('http://evo', 'k').enviarTexto('i', 'n', 't')).toEqual({ id: null });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>', { status: 200 })));
+    expect(await new Evolution('http://evo', 'k').enviarTexto('i', 'n', 't')).toEqual({ id: null });
+  });
+
+  it('erro HTTP é falha certa e erro de rede é envio incerto', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ruim', { status: 500 })));
+    await expect(new Evolution('http://evo', 'k').enviarTexto('i', 'n', 't')).rejects.toMatchObject({ status: 500 });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+    await expect(new Evolution('http://evo', 'k').enviarTexto('i', 'n', 't')).rejects.toBeInstanceOf(ErroEnvioIncerto);
   });
 });

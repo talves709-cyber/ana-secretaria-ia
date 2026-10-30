@@ -15,6 +15,11 @@ export interface QrCode {
   pairingCode?: string | null;
 }
 
+const TIMEOUT_MS = 30_000;
+
+/** Envio sem resposta (rede/timeout): a mensagem pode ou não ter saído. */
+export class ErroEnvioIncerto extends Error {}
+
 export class ErroEvolution extends Error {
   constructor(
     message: string,
@@ -84,15 +89,36 @@ export class Evolution {
     return r.instance?.state ?? 'desconhecido';
   }
 
-  /** Envia texto a um número ou, em grupo, ao JID do grupo. Devolve o id da mensagem enviada. */
-  async enviarTexto(instancia: string, numero: string, texto: string): Promise<{ id: string }> {
-    const r = await this.chamar<{ key?: { id?: string } }>('POST', `/message/sendText/${encodeURIComponent(instancia)}`, {
-      number: numero,
-      text: texto,
-    });
-    const id = r.key?.id;
-    if (!id) throw new Error('Evolution sendText não devolveu key.id');
-    return { id };
+  /**
+   * Envia texto a um número ou, em grupo, ao JID do grupo.
+   * - resposta HTTP de erro: ErroEvolution (falha certa, nada saiu);
+   * - rede/timeout sem resposta: ErroEnvioIncerto (pode ter saído);
+   * - 2xx: enviado; id nulo se a resposta não trouxer key.id ou vier inválida.
+   */
+  async enviarTexto(instancia: string, numero: string, texto: string): Promise<{ id: string | null }> {
+    const caminho = `/message/sendText/${encodeURIComponent(instancia)}`;
+    let resposta: Response;
+    let corpo: string;
+    try {
+      resposta = await fetch(`${this.url}${caminho}`, {
+        method: 'POST',
+        headers: { apikey: this.apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ number: numero, text: texto }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      corpo = await resposta.text();
+    } catch (erro) {
+      throw new ErroEnvioIncerto(erro instanceof Error ? erro.message : String(erro));
+    }
+    if (!resposta.ok) {
+      throw new ErroEvolution(`Evolution POST ${caminho} → ${resposta.status}: ${corpo}`, resposta.status);
+    }
+    try {
+      const id = (JSON.parse(corpo) as { key?: { id?: unknown } }).key?.id;
+      return { id: typeof id === 'string' && id ? id : null };
+    } catch {
+      return { id: null };
+    }
   }
 
   /** Cria a instância com o webhook se ela ainda não existir. Devolve o estado atual. */
