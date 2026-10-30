@@ -89,6 +89,7 @@ const garantirInstancia = () =>
 
 registrarPainel(servidor, {
   senha: config.PAINEL_SENHA,
+  sessaoSegredo: config.SESSAO_SEGREDO,
   estado: garantirInstancia,
   qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
   resumo: () => resumoMensagens(db),

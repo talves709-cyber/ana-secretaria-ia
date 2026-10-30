@@ -31,7 +31,8 @@ Para gerar valores fortes, qualquer gerador de senha serve, ou no terminal:
 | `POSTGRES_PASSWORD` | Senha do banco |
 | `EVOLUTION_API_KEY` | Chave da API do Evolution (mín. 16 caracteres) |
 | `WEBHOOK_TOKEN` | Token que o Evolution envia ao webhook (mín. 16) |
-| `PAINEL_SENHA` | Senha da página de conexão (mín. 12) |
+| `PAINEL_SENHA` | Senha de login do painel (mín. 12) |
+| `SESSAO_SEGREDO` | Segredo que assina o cookie de sessão do painel (mín. 32; `openssl rand -hex 32`) |
 
 Deixe `EVOLUTION_PUBLIC_URL` e `WEBHOOK_URL` como estão: eles usam a rede interna.
 
@@ -50,8 +51,8 @@ Só o `app` recebe domínio. Evolution, Postgres e Redis ficam só na rede inter
 
 ## 5. Conectar o WhatsApp
 
-Abra `https://SEU-DOMINIO/conexao`. O navegador pede usuário e senha: o usuário pode ser
-qualquer nome e a senha é a `PAINEL_SENHA`. Escaneie o QR Code em
+Abra `https://SEU-DOMINIO/conexao`. O navegador abre a página de login: digite a `PAINEL_SENHA`
+(a sessão dura 12 horas). Escaneie o QR Code em
 *WhatsApp > Aparelhos conectados > Conectar aparelho*. A página atualiza sozinha e mostra
 "WhatsApp conectado" quando terminar.
 

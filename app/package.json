@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.2.0",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/formbody": "^9.0.1",
     "bullmq": "^6.4.0",
     "fastify": "^5.12.7",
     "ioredis": "^6.0.0",

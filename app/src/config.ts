@@ -17,6 +17,8 @@ const esquema = z.object({
   WEBHOOK_URL: z.string().url(),
   WEBHOOK_TOKEN: segredo(16),
   PAINEL_SENHA: segredo(12),
+  // Assina o cookie de sessão do painel.
+  SESSAO_SEGREDO: segredo(32),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   // Sem chave, a Ana só grava as mensagens e não classifica.
   ANTHROPIC_API_KEY: z.string().optional().transform((v) => v?.trim() || undefined),

@@ -1,10 +1,15 @@
 import { timingSafeEqual } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import cookie from '@fastify/cookie';
+import formbody from '@fastify/formbody';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { QrCode } from './evolution.js';
 import type { LinhaClassificada, ResumoDiario, ResumoMensagens } from './repositorio.js';
+import { criarSessao, LimiteTentativas, sessaoValida, VALIDADE_SESSAO_MS } from './sessao.js';
 
 export interface DepsPainel {
   senha: string;
+  /** Segredo que assina o cookie de sessão (SESSAO_SEGREDO). */
+  sessaoSegredo: string;
   /** Garante que a instância existe e devolve o estado ("open", "connecting", "close"...). */
   estado: () => Promise<string>;
   qrCode: () => Promise<QrCode>;
@@ -94,15 +99,40 @@ ${sugestoes}
   return pagina(corpo, 120);
 }
 
-function senhaConfere(cabecalho: string | undefined, senha: string): boolean {
-  if (!cabecalho?.startsWith('Basic ')) return false;
-  const decodificado = Buffer.from(cabecalho.slice(6), 'base64').toString('utf8');
-  const recebida = Buffer.from(decodificado.slice(decodificado.indexOf(':') + 1));
-  const esperada = Buffer.from(senha);
-  return recebida.length === esperada.length && timingSafeEqual(recebida, esperada);
+const COOKIE_SESSAO = 'ana_sessao';
+
+function senhaConfere(recebida: string, senha: string): boolean {
+  const a = Buffer.from(recebida);
+  const b = Buffer.from(senha);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function pagina(corpo: string, recarregarEm?: number): string {
+/** Só aceita caminhos do próprio site: começa com "/" e não com "//" nem barra seguida de contrabarra (redirecionamento aberto). */
+function destinoSeguro(volta: unknown): string {
+  if (typeof volta !== 'string' || !volta.startsWith('/') || volta.startsWith('//') || volta.startsWith('/\\')) {
+    return '/painel';
+  }
+  return volta;
+}
+
+/** Devolve true se há sessão válida; senão redireciona para /entrar?volta=<caminho> e devolve false. */
+export function exigirSessao(req: FastifyRequest, reply: FastifyReply, segredo: string): boolean {
+  if (sessaoValida(req.cookies[COOKIE_SESSAO], segredo)) return true;
+  reply.redirect(`/entrar?volta=${encodeURIComponent(req.url)}`);
+  return false;
+}
+
+function paginaLogin(volta: string, erro?: string): string {
+  const aviso = erro ? `<p style="color:#c5221f">${escapar(erro)}</p>` : '';
+  return pagina(`<h2 style="text-align:center">Entrar</h2>${aviso}
+<form method="post" action="/entrar">
+<input type="hidden" name="volta" value="${escapar(volta)}">
+<p><input type="password" name="senha" placeholder="Senha" autocomplete="current-password" autofocus required style="padding:8px;width:100%;max-width:260px"></p>
+<p><button type="submit" style="padding:8px 20px">Entrar</button></p>
+</form>`);
+}
+
+export function pagina(corpo: string, recarregarEm?: number): string {
   const meta = recarregarEm ? `<meta http-equiv="refresh" content="${recarregarEm}">` : '';
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">${meta}<title>Ana · Conexão</title>
@@ -116,12 +146,46 @@ ul.chips li{background:#f1f3f4;border-radius:14px;padding:4px 10px;font-size:13p
 </head><body><h1>Ana</h1>${corpo}</body></html>`;
 }
 
-/** Página protegida por senha para ver o estado da conexão e ler o QR Code no navegador. */
+/** Rotas do painel, protegidas por login com cookie de sessão assinado. */
 export function registrarPainel(app: FastifyInstance, deps: DepsPainel) {
-  app.get('/conexao', async (req, reply) => {
-    if (!senhaConfere(req.headers.authorization, deps.senha)) {
-      return reply.code(401).header('www-authenticate', 'Basic realm="Ana", charset="UTF-8"').send('Senha necessária');
+  app.register(cookie);
+  app.register(formbody);
+  const limite = new LimiteTentativas();
+
+  app.get('/entrar', async (req, reply) => {
+    const { volta } = req.query as { volta?: string };
+    reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
+    return paginaLogin(destinoSeguro(volta));
+  });
+
+  app.post('/entrar', async (req, reply) => {
+    const corpo = (req.body ?? {}) as { senha?: unknown; volta?: unknown };
+    reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
+    if (limite.bloqueado(req.ip)) {
+      return reply.code(429).send(paginaLogin(destinoSeguro(corpo.volta), 'Muitas tentativas. Aguarde 15 minutos.'));
     }
+    if (typeof corpo.senha !== 'string' || !senhaConfere(corpo.senha, deps.senha)) {
+      limite.falhou(req.ip);
+      return reply.code(401).send(paginaLogin(destinoSeguro(corpo.volta), 'Senha incorreta.'));
+    }
+    limite.limpar(req.ip);
+    reply.setCookie(COOKIE_SESSAO, criarSessao(deps.sessaoSegredo), {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: VALIDADE_SESSAO_MS / 1000,
+    });
+    return reply.redirect(destinoSeguro(corpo.volta));
+  });
+
+  app.post('/sair', async (_req, reply) => {
+    reply.clearCookie(COOKIE_SESSAO, { path: '/' });
+    return reply.redirect('/entrar');
+  });
+
+  app.get('/conexao', async (req, reply) => {
+    if (!exigirSessao(req, reply, deps.sessaoSegredo)) return reply;
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
 
     const estado = await deps.estado();
@@ -143,9 +207,7 @@ export function registrarPainel(app: FastifyInstance, deps: DepsPainel) {
   });
 
   app.get('/painel', async (req, reply) => {
-    if (!senhaConfere(req.headers.authorization, deps.senha)) {
-      return reply.code(401).header('www-authenticate', 'Basic realm="Ana", charset="UTF-8"').send('Senha necessária');
-    }
+    if (!exigirSessao(req, reply, deps.sessaoSegredo)) return reply;
     reply.type('text/html; charset=utf-8').header('cache-control', 'no-store');
     return paginaPainel(await deps.resumoDiario());
   });
