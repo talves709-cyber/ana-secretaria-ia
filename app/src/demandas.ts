@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import type { Db } from './db.js';
+
+/** Pool, ou um cliente que já está numa transação (as funções então participam dela). */
+export type Conexao = Db | PoolClient;
+
 
 export const ETAPAS = ['novo', 'comigo', 'aguardando_terceiro', 'agendado', 'concluido'] as const;
 export type Etapa = (typeof ETAPAS)[number];
@@ -77,7 +82,9 @@ function paraRascunho(r: Record<string, any>): Rascunho {
   };
 }
 
-export async function emTransacao<T>(db: Db, fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> {
+/** Com um PoolClient (já numa transação) executa direto, sem BEGIN/COMMIT; com o pool abre a própria transação. */
+export async function emTransacao<T>(db: Conexao, fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  if ('release' in db) return fn(db);
   const c = await db.connect();
   try {
     await c.query('BEGIN');
@@ -93,7 +100,7 @@ export async function emTransacao<T>(db: Db, fn: (c: import('pg').PoolClient) =>
 }
 
 /** Cliente da conversa (WhatsApp, pelo jid); cria se não existir. Nunca mescla clientes. */
-export async function garantirClienteDaConversa(db: Db, conversaId: number): Promise<number> {
+export async function garantirClienteDaConversa(db: Conexao, conversaId: number): Promise<number> {
   return emTransacao(db, async (c) => {
     const conv = await c.query(
       `SELECT c.jid, COALESCE(c.nome, ct.nome, c.jid) AS nome
@@ -115,7 +122,7 @@ export async function garantirClienteDaConversa(db: Db, conversaId: number): Pro
 }
 
 /** Demandas não concluídas da conversa, mais recentes primeiro, até 5. */
-export async function demandasAbertasDaConversa(db: Db, conversaId: number): Promise<Demanda[]> {
+export async function demandasAbertasDaConversa(db: Conexao, conversaId: number): Promise<Demanda[]> {
   const r = await db.query(
     `SELECT ${COLUNAS_DEMANDA} FROM demandas
       WHERE conversa_id = $1 AND etapa <> 'concluido'
@@ -126,7 +133,7 @@ export async function demandasAbertasDaConversa(db: Db, conversaId: number): Pro
   return r.rows.map(paraDemanda);
 }
 
-export async function criarDemanda(db: Db, d: NovaDemanda): Promise<Demanda> {
+export async function criarDemanda(db: Conexao, d: NovaDemanda): Promise<Demanda> {
   return emTransacao(db, async (c) => {
     const r = await c.query(
       `INSERT INTO demandas
@@ -152,7 +159,7 @@ const CAMPOS_ATUALIZAVEIS = {
 
 /** Atualiza só os campos informados (a etapa muda apenas por `mudarEtapa`). */
 export async function atualizarDemanda(
-  db: Db,
+  db: Conexao,
   id: number,
   campos: Partial<Pick<Demanda, 'titulo' | 'plano' | 'prazo' | 'prazoTemHora' | 'etapaSugerida' | 'prioridade'>>,
 ): Promise<void> {
@@ -170,7 +177,7 @@ export async function atualizarDemanda(
 }
 
 /** Liga mensagens a uma demanda (ou as marca como analisadas, com `demandaId` nulo). Mensagem já ligada é mantida. */
-export async function anexarItens(db: Db, demandaId: number | null, mensagemIds: number[]): Promise<void> {
+export async function anexarItens(db: Conexao, demandaId: number | null, mensagemIds: number[]): Promise<void> {
   if (mensagemIds.length === 0) return;
   await db.query(
     `INSERT INTO demanda_itens (mensagem_id, demanda_id)
@@ -181,7 +188,7 @@ export async function anexarItens(db: Db, demandaId: number | null, mensagemIds:
 }
 
 /** Muda a etapa, atualiza `etapa_desde` e grava o histórico. Não faz nada se já está em `para`. */
-export async function mudarEtapa(db: Db, id: number, para: Etapa, autor: Autor, motivo: string): Promise<void> {
+export async function mudarEtapa(db: Conexao, id: number, para: Etapa, autor: Autor, motivo: string): Promise<void> {
   await emTransacao(db, async (c) => {
     const atual = await c.query(`SELECT etapa FROM demandas WHERE id = $1 FOR UPDATE`, [id]);
     if (atual.rows.length === 0) throw new Error(`Demanda ${id} não existe`);
@@ -192,7 +199,7 @@ export async function mudarEtapa(db: Db, id: number, para: Etapa, autor: Autor, 
   });
 }
 
-export async function buscarDemanda(db: Db, id: number): Promise<Demanda | null> {
+export async function buscarDemanda(db: Conexao, id: number): Promise<Demanda | null> {
   const r = await db.query(`SELECT ${COLUNAS_DEMANDA} FROM demandas WHERE id = $1`, [id]);
   return r.rows.length ? paraDemanda(r.rows[0]) : null;
 }
@@ -203,7 +210,7 @@ export function hashRascunho(destino: string, texto: string): string {
 }
 
 /** Nova versão do rascunho (max + 1). O hash cobre destino e texto: o que foi aprovado é exatamente o que sai. */
-export async function salvarRascunho(db: Db, demandaId: number, texto: string, destino: string): Promise<Rascunho> {
+export async function salvarRascunho(db: Conexao, demandaId: number, texto: string, destino: string): Promise<Rascunho> {
   const hash = hashRascunho(destino, texto);
   return emTransacao(db, async (c) => {
     // Trava a demanda para que versões concorrentes não colidam em (demanda_id, versao).
@@ -219,7 +226,7 @@ export async function salvarRascunho(db: Db, demandaId: number, texto: string, d
   });
 }
 
-export async function rascunhoAtual(db: Db, demandaId: number): Promise<Rascunho | null> {
+export async function rascunhoAtual(db: Conexao, demandaId: number): Promise<Rascunho | null> {
   const r = await db.query(`SELECT ${COLUNAS_RASCUNHO} FROM rascunhos WHERE demanda_id = $1 ORDER BY versao DESC LIMIT 1`, [demandaId]);
   return r.rows.length ? paraRascunho(r.rows[0]) : null;
 }

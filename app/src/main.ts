@@ -6,16 +6,8 @@ import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonom
 import { classificarConversa, perguntarIA } from './classificador.js';
 import { registrarUsoSeguro, gastoDoMes, situacaoLimite } from './uso-ia.js';
 import { analisarConversa, perguntarEspecialista } from './especialista.js';
-import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa, nomeDaEmpresa } from './especialista-dados.js';
-import {
-  anexarItens,
-  atualizarDemanda,
-  criarDemanda,
-  demandasAbertasDaConversa,
-  garantirClienteDaConversa,
-  mudarEtapa,
-  salvarRascunho,
-} from './demandas.js';
+import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa, nomeDaEmpresa, transacaoDoEspecialista } from './especialista-dados.js';
+import { demandasAbertasDaConversa } from './demandas.js';
 import {
   agendarClassificacao,
   criarFila,
@@ -110,12 +102,7 @@ const workerEspecialista = anthropic
           baseDaEmpresa: (id) => baseDaEmpresa(db, id),
           nomeDaEmpresa: (id) => nomeDaEmpresa(db, id),
           exemplosDaEmpresa: (id) => exemplosDaEmpresa(db, id),
-          garantirCliente: (id) => garantirClienteDaConversa(db, id),
-          criarDemanda: (d) => criarDemanda(db, d),
-          atualizarDemanda: (id, campos) => atualizarDemanda(db, id, campos),
-          anexarItens: (demandaId, ids) => anexarItens(db, demandaId, ids),
-          mudarEtapa: (id, para, autor, motivo) => mudarEtapa(db, id, para, autor, motivo),
-          salvarRascunho: (demandaId, texto, destino) => salvarRascunho(db, demandaId, texto, destino),
+          transacao: (fn) => transacaoDoEspecialista(db, fn),
           perguntar: (sistema, pedido) =>
             perguntarEspecialista(
               { client: anthropic, modelo: config.CLAUDE_MODELO_ESPECIALISTA, esforco: config.CLAUDE_ESFORCO_ESPECIALISTA },

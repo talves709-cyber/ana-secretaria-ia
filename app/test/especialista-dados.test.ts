@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../src/db.js';
 import { anexarItens, criarDemanda, garantirClienteDaConversa } from '../src/demandas.js';
-import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa } from '../src/especialista-dados.js';
+import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa, transacaoDoEspecialista } from '../src/especialista-dados.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 let db: Db;
@@ -102,5 +102,48 @@ describe('baseDaEmpresa e exemplosDaEmpresa', () => {
     expect(r[0]).toEqual({ antes: 'a7', depois: 'd7' });
     expect(await exemplosDaEmpresa(db, empresaId, 2)).toHaveLength(2);
     expect(await exemplosDaEmpresa(db, null)).toEqual([]);
+  });
+});
+
+describe('transacaoDoEspecialista', () => {
+  async function contagens() {
+    const r = await db.query(`SELECT (SELECT count(*) FROM demandas)::int AS d, (SELECT count(*) FROM demanda_itens)::int AS i,
+      (SELECT count(*) FROM clientes)::int AS c, (SELECT count(*) FROM rascunhos)::int AS r`);
+    return r.rows[0];
+  }
+
+  it('desfaz tudo quando uma escrita falha no meio (sem demanda, cliente nem item)', async () => {
+    const c = await conversa();
+    const m = await mensagem(c, 'oi', 1);
+    await expect(
+      transacaoDoEspecialista(db, async (e) => {
+        const cliente = await e.garantirCliente(c);
+        const d = await e.criarDemanda({
+          clienteId: cliente, conversaId: c, empresaId: null, categoriaId: null, titulo: 't', plano: null,
+          prazo: null, prazoTemHora: false, etapaSugerida: null, prioridade: 'media',
+        });
+        await e.anexarItens(d.id, [m]);
+        await e.salvarRascunho(999999, 'texto', 'destino'); // demanda inexistente: lança
+      }),
+    ).rejects.toThrow();
+    expect(await contagens()).toEqual({ d: 0, i: 0, c: 0, r: 0 });
+    // O bloco continua pendente, então o retry do job refaz sem duplicar.
+    expect(await carregarBloco(db, c)).not.toBeNull();
+  });
+
+  it('grava tudo junto quando dá certo', async () => {
+    const c = await conversa();
+    const m = await mensagem(c, 'oi', 1);
+    await transacaoDoEspecialista(db, async (e) => {
+      const cliente = await e.garantirCliente(c);
+      const d = await e.criarDemanda({
+        clienteId: cliente, conversaId: c, empresaId: null, categoriaId: null, titulo: 't', plano: null,
+        prazo: null, prazoTemHora: false, etapaSugerida: null, prioridade: 'media',
+      });
+      await e.anexarItens(d.id, [m]);
+      await e.salvarRascunho(d.id, 'texto', 'destino');
+    });
+    expect(await contagens()).toEqual({ d: 1, i: 1, c: 1, r: 1 });
+    expect(await carregarBloco(db, c)).toBeNull();
   });
 });

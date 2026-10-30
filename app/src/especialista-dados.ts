@@ -1,5 +1,7 @@
 import type { Db } from './db.js';
 import type { MensagemParaIA } from './classificacao-dados.js';
+import { anexarItens, atualizarDemanda, criarDemanda, emTransacao, garantirClienteDaConversa, mudarEtapa, salvarRascunho } from './demandas.js';
+import type { EscritaEspecialista } from './especialista.js';
 
 export interface BlocoEspecialista {
   conversaId: number;
@@ -96,4 +98,18 @@ export async function exemplosDaEmpresa(db: Db, empresaId: number | null, limite
   if (empresaId === null) return [];
   const r = await db.query(`SELECT antes, depois FROM exemplos_estilo WHERE empresa_id = $1 ORDER BY id DESC LIMIT $2`, [empresaId, limite]);
   return r.rows.map((x) => ({ antes: x.antes, depois: x.depois }));
+}
+
+/** Executa as escritas do especialista numa única transação (commit só se todas passarem). */
+export function transacaoDoEspecialista<T>(db: Db, fn: (e: EscritaEspecialista) => Promise<T>): Promise<T> {
+  return emTransacao(db, (c) =>
+    fn({
+      garantirCliente: (id) => garantirClienteDaConversa(c, id),
+      criarDemanda: (d) => criarDemanda(c, d),
+      atualizarDemanda: (id, campos) => atualizarDemanda(c, id, campos),
+      anexarItens: (demandaId, ids) => anexarItens(c, demandaId, ids),
+      mudarEtapa: (id, para, autor, motivo) => mudarEtapa(c, id, para, autor, motivo),
+      salvarRascunho: (demandaId, texto, destino) => salvarRascunho(c, demandaId, texto, destino),
+    }),
+  );
 }
