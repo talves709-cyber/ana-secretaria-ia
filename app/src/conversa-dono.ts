@@ -151,7 +151,14 @@ export async function tratarMensagemDoDono(d: DepsConversaDono, texto: string, r
 
   if (misturaConfirmacao(texto)) return d.responder(SO_SIM_NAO);
 
-  const livres = await d.interpretarLivre(texto);
+  let livres: ComandoDeDemanda[] | null;
+  try {
+    livres = await d.interpretarLivre(texto);
+  } catch (e) {
+    // Sem nova tentativa do job: a Ana avisa e o Thiago decide se manda de novo.
+    console.error(`Intérprete de texto livre falhou: ${e instanceof Error ? e.message : String(e)}`);
+    return d.responder('Ana: não consegui interpretar agora; tente um comando curto (ok N, N aguardar...).');
+  }
   if (!livres || livres.length === 0) return d.responder(FORMAS_ACEITAS);
   await d.salvarConfirmacao(livres, texto);
   const demandas = await d.demandasAbertas();

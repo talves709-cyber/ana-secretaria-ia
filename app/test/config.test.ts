@@ -30,3 +30,12 @@ describe('DONO_WHATSAPP e DONO_JIDS_EXTRA', () => {
     expect(lerConfig({ ...BASE, DONO_JIDS_EXTRA: '1@lid, 2@lid,' }).DONO_JIDS_EXTRA).toEqual(['1@lid', '2@lid']);
   });
 });
+
+describe('SILENCIO_INICIO e SILENCIO_FIM', () => {
+  it('recusa início igual ao fim', () => {
+    expect(() => lerConfig({ ...BASE, SILENCIO_INICIO: '8', SILENCIO_FIM: '8' })).toThrow(/SILENCIO_FIM/);
+  });
+  it('aceita janela que não vira a meia-noite', () => {
+    expect(lerConfig({ ...BASE, SILENCIO_INICIO: '0', SILENCIO_FIM: '6' })).toMatchObject({ SILENCIO_INICIO: 0, SILENCIO_FIM: 6 });
+  });
+});

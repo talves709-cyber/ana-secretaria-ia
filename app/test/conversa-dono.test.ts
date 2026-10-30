@@ -188,6 +188,19 @@ describe('tratarMensagemDoDono', () => {
     expect(respostas).toEqual(['Ana: Nada para confirmar.']);
   });
 
+  it('se o intérprete falha, a Ana avisa e o job termina sem erro', async () => {
+    const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { d, respostas } = criar();
+      d.interpretarLivre.mockRejectedValueOnce(new Error('API fora'));
+      await expect(tratarMensagemDoDono(d, 'manda a da proforma')).resolves.toBeUndefined();
+      expect(d.salvarConfirmacao).not.toHaveBeenCalled();
+      expect(respostas).toEqual(['Ana: não consegui interpretar agora; tente um comando curto (ok N, N aguardar...).']);
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
   it('IA sem comandos responde com as formas aceitas e não salva confirmação', async () => {
     for (const livre of [null, []] as (Comando[] | null)[]) {
       const { d, respostas } = criar(livre);

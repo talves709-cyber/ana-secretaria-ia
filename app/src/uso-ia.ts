@@ -16,13 +16,24 @@ export const PRECOS: Record<string, { entrada: number; saida: number; cacheLeitu
 
 export type AgenteIA = 'triagem' | 'especialista' | 'interprete';
 
+/** Preço pelo prefixo do id (ex.: "claude-haiku-5-5-20261001" usa o do "claude-haiku-5-5"); undefined se nenhum casa. */
+function precoDe(modelo: string) {
+  const chave = Object.keys(PRECOS).find((k) => modelo === k || modelo.startsWith(`${k}-`));
+  return chave ? PRECOS[chave] : undefined;
+}
+
 /** Custo em US$. Modelo desconhecido usa o preço do opus (estimativa conservadora). */
 export function custoUsd(modelo: string, u: UsoTokens): number {
-  const p = PRECOS[modelo] ?? PRECOS['claude-opus-5-5']!;
+  const p = precoDe(modelo) ?? PRECOS['claude-opus-5-5']!;
   return (u.entrada * p.entrada + u.saida * p.saida + u.cacheLeitura * p.cacheLeitura + u.cacheEscrita * p.cacheEscrita) / 1_000_000;
 }
 
-export async function registrarUso(db: Db, agente: AgenteIA, modelo: string, u: UsoTokens): Promise<void> {
+/**
+ * `modelo`: o que a API devolveu; `modeloPedido`: o configurado. Se o devolvido não casa com nenhum preço,
+ * grava e cobra pelo pedido.
+ */
+export async function registrarUso(db: Db, agente: AgenteIA, modelo: string, u: UsoTokens, modeloPedido?: string): Promise<void> {
+  if (modeloPedido && !precoDe(modelo)) modelo = modeloPedido;
   await db.query(
     `INSERT INTO uso_ia (agente, modelo, entrada, saida, cache_leitura, cache_escrita, custo_usd)
      VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -49,9 +60,15 @@ export function situacaoLimite(gasto: number, limite: number): 'ok' | 'aviso' | 
 }
 
 /** Registra o uso sem nunca lançar: falha de contabilidade não pode refazer uma chamada de IA já paga. */
-export async function registrarUsoSeguro(db: Db, agente: AgenteIA, modelo: string, u: UsoTokens): Promise<void> {
+export async function registrarUsoSeguro(
+  db: Db,
+  agente: AgenteIA,
+  modelo: string,
+  u: UsoTokens,
+  modeloPedido?: string,
+): Promise<void> {
   try {
-    await registrarUso(db, agente, modelo, u);
+    await registrarUso(db, agente, modelo, u, modeloPedido);
   } catch {
     console.error(`Falha ao registrar uso de IA (agente ${agente}, modelo ${modelo})`);
   }

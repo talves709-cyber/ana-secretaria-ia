@@ -226,6 +226,9 @@ describe('aviso de limite', () => {
     await cicloAna(deps());
     expect(enviadas).toHaveLength(2);
     expect(enviadas[1]).toContain('limite mensal');
+    expect(enviadas[1]).toContain('análise do especialista');
+    expect(enviadas[1]).toContain('interpretação de texto livre');
+    expect(enviadas[1]).toContain('a triagem continua');
     await gasto(60, '2026-11-03T12:00:00Z');
     await cicloAna(deps(new Date('2026-11-03T15:00:00Z')));
     expect(enviadas).toHaveLength(3);

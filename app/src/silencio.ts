@@ -58,10 +58,13 @@ export function feriadosNacionais(ano: number): string[] {
   ];
 }
 
-/** Fim de semana, feriado nacional, ou hora local >= inicio ou < fim. */
+/**
+ * Fim de semana, feriado nacional, ou hora local dentro da janela [inicio, fim): a janela pode virar a
+ * meia-noite (19 → 8) ou não (0 → 6). inicio igual a fim é recusado na configuração.
+ */
 export function emSilencio(agora: Date, inicio = 19, fim = 8): boolean {
   const { ano, mes, dia, hora, diaSemana } = parteSP(agora);
   if (diaSemana === 'Sat' || diaSemana === 'Sun') return true;
   if (feriadosNacionais(ano).includes(chaveData(ano, mes, dia))) return true;
-  return hora >= inicio || hora < fim;
+  return inicio < fim ? hora >= inicio && hora < fim : hora >= inicio || hora < fim;
 }

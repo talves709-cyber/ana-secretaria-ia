@@ -43,6 +43,9 @@ const esquema = z.object({
   SILENCIO_INICIO: z.coerce.number().int().min(0).max(23).default(19),
   SILENCIO_FIM: z.coerce.number().int().min(0).max(23).default(8),
   CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
+}).refine((c) => c.SILENCIO_INICIO !== c.SILENCIO_FIM, {
+  path: ['SILENCIO_FIM'],
+  message: 'precisa ser diferente de SILENCIO_INICIO',
 });
 
 export type Config = z.infer<typeof esquema>;

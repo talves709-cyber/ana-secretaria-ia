@@ -109,7 +109,7 @@ const workerClassificar = anthropic
               sistema,
               pedido,
             );
-            if (resultado.tipo === 'ok') await registrarUsoSeguro(db, 'triagem', resultado.modelo, resultado.uso);
+            if (resultado.tipo === 'ok') await registrarUsoSeguro(db, 'triagem', resultado.modelo, resultado.uso, config.CLAUDE_MODELO);
             return resultado;
           },
           modelo: config.CLAUDE_MODELO,
@@ -143,7 +143,7 @@ const workerEspecialista = anthropic
               sistema,
               pedido,
             ),
-          registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'especialista', modelo, uso),
+          registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'especialista', modelo, uso, config.CLAUDE_MODELO_ESPECIALISTA),
           podeGastar: async () => situacaoLimite(await gastoDoMes(db), config.IA_LIMITE_MENSAL_USD) !== 'estourado',
           avisarUrgente: async (demandaId) => {
             if (comandosLigados) await avisarUrgente(depsAna, demandaId);
@@ -178,7 +178,7 @@ const workerComandos = comandosLigados
                 modelo: config.CLAUDE_MODELO,
                 esforco: config.CLAUDE_ESFORCO,
                 demandas: () => demandasParaInterprete(db),
-                registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'interprete', modelo, uso),
+                registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'interprete', modelo, uso, config.CLAUDE_MODELO),
                 podeGastar: async () => situacaoLimite(await gastoDoMes(db), config.IA_LIMITE_MENSAL_USD) !== 'estourado',
               })
             : async () => null,

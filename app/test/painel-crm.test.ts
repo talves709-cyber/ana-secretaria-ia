@@ -41,6 +41,15 @@ describe('paginaQuadro', () => {
     expect(html).toContain('&#60;script&#62;');
   });
 
+  it('conta "parado há" em dias civis de São Paulo', () => {
+    // AGORA = 27/10 12:00 SP. 26/10 23:30 SP é ontem, embora faça menos de 24 h.
+    const ontem = paginaQuadro([cartao({ etapaDesde: new Date('2026-10-27T02:30:00Z') })], {}, OPCOES, AGORA);
+    expect(ontem).toContain('parado há 1 dia<');
+    // 27/10 00:30 SP é hoje, embora em UTC seja o mesmo dia de ontem à noite.
+    const hoje = paginaQuadro([cartao({ etapaDesde: new Date('2026-10-27T03:30:00Z') })], {}, OPCOES, AGORA);
+    expect(hoje).toContain('parado desde hoje');
+  });
+
   it('mostra "parado há 3 dias"', () => {
     const html = paginaQuadro([cartao({ etapaDesde: new Date('2026-10-24T14:00:00Z') })], {}, OPCOES, AGORA);
     expect(html).toContain('parado há 3 dias');

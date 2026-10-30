@@ -27,6 +27,6 @@ echo "[backup] enviando para $BACKUP_DESTINO"
 rclone copy "$tmp/$nome" "$BACKUP_DESTINO"
 
 echo "[backup] apagando backups com mais de 30 dias"
-rclone delete "$BACKUP_DESTINO" --min-age 30d --include "ana-*.sql.gz"
+rclone delete "$BACKUP_DESTINO" --min-age 30d --include "ana-*.sql.gz" --drive-use-trash=false
 
 echo "[backup] ok: $nome"

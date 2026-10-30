@@ -65,8 +65,16 @@ const dataHora = new Intl.DateTimeFormat('pt-BR', {
   minute: '2-digit',
 });
 
+const diaSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** Dias civis de São Paulo entre as duas datas (ontem às 23h já conta 1 dia). */
+function diasCivis(desde: Date, agora: Date): number {
+  const meiaNoite = (d: Date) => Date.parse(`${diaSP.format(d)}T00:00:00Z`);
+  return Math.round((meiaNoite(agora) - meiaNoite(desde)) / DIA_MS);
+}
+
 function textoParado(desde: Date, agora: Date): string {
-  const dias = Math.max(0, Math.floor((agora.getTime() - desde.getTime()) / DIA_MS));
+  const dias = Math.max(0, diasCivis(desde, agora));
   if (dias === 0) return 'parado desde hoje';
   return `parado há ${dias} ${dias === 1 ? 'dia' : 'dias'}`;
 }

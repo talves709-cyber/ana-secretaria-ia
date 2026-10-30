@@ -44,4 +44,12 @@ describe('emSilencio', () => {
     expect(emSilencio(terca16h, 16, 8)).toBe(true);
     expect(emSilencio(new Date('2026-10-27T11:00:00Z'), 19, 9)).toBe(true); // 08:00 SP, fim 9
   });
+
+  it('janela que não vira a meia-noite (0 às 6) silencia só a madrugada', () => {
+    // terça, horas de São Paulo
+    expect(emSilencio(new Date('2026-10-27T03:00:00Z'), 0, 6)).toBe(true); // 00:00
+    expect(emSilencio(new Date('2026-10-27T08:59:00Z'), 0, 6)).toBe(true); // 05:59
+    expect(emSilencio(new Date('2026-10-27T09:00:00Z'), 0, 6)).toBe(false); // 06:00
+    expect(emSilencio(new Date('2026-10-27T23:00:00Z'), 0, 6)).toBe(false); // 20:00
+  });
 });

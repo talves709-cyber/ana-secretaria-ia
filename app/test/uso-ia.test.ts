@@ -17,6 +17,11 @@ describe('custoUsd e situacaoLimite', () => {
     expect(custoUsd('modelo-novo', u)).toBeCloseTo(custoUsd('claude-opus-5-5', u));
     expect(custoUsd('modelo-novo', u)).toBeCloseTo(24);
   });
+  it('casa o preço pelo prefixo do id do modelo', () => {
+    const u = { ...zero, entrada: 1_000_000, saida: 1_000_000 };
+    expect(custoUsd('claude-haiku-5-5-20261001', u)).toBeCloseTo(0.6);
+    expect(custoUsd('claude-haiku-5-55', u)).toBeCloseTo(24); // não é o mesmo modelo: preço do opus
+  });
   it('situacaoLimite', () => {
     expect(situacaoLimite(39.9, 50)).toBe('ok');
     expect(situacaoLimite(40, 50)).toBe('aviso');
@@ -43,6 +48,17 @@ describe('registrarUso e gastoDoMes', () => {
     const r = await db.query(`SELECT agente, modelo, entrada, saida, custo_usd::float8 c FROM uso_ia`);
     expect(r.rows[0]).toMatchObject({ agente: 'triagem', modelo: 'claude-haiku-5-5', entrada: 1_000_000, saida: 1_000_000 });
     expect(r.rows[0].c).toBeCloseTo(0.6);
+  });
+
+  it('modelo devolvido sem preço é gravado e cobrado pelo modelo pedido; com preço, fica o devolvido', async () => {
+    const u = { ...zero, entrada: 1_000_000, saida: 1_000_000 };
+    await registrarUso(db, 'triagem', 'modelo-de-reserva', u, 'claude-haiku-5-5');
+    await registrarUso(db, 'triagem', 'claude-sonnet-5-5', u, 'claude-haiku-5-5');
+    const r = await db.query(`SELECT modelo, custo_usd::float8 c FROM uso_ia ORDER BY id`);
+    expect(r.rows[0].modelo).toBe('claude-haiku-5-5');
+    expect(r.rows[0].c).toBeCloseTo(0.6);
+    expect(r.rows[1].modelo).toBe('claude-sonnet-5-5');
+    expect(r.rows[1].c).toBeCloseTo(12);
   });
 
   it('gastoDoMes soma só o mês corrente de São Paulo', async () => {

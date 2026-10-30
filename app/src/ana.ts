@@ -115,7 +115,7 @@ async function avisarLimite(d: DepsAna, agora: Date): Promise<void> {
   if (nova.rows.length === 0) return;
   const texto =
     situacao === 'estourado'
-      ? 'Ana: O limite mensal de IA foi atingido. Pausei a análise automática até o próximo mês; os pedidos continuam sendo gravados.'
+      ? 'Ana: O limite mensal de IA foi atingido. Até o próximo mês ficam pausadas a análise do especialista (demandas e respostas prontas) e a interpretação de texto livre; a triagem continua, os comandos curtos funcionam e os pedidos continuam sendo gravados.'
       : 'Ana: O gasto com IA neste mês passou de 80% do limite.';
   try {
     await d.enviar(texto);
