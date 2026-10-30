@@ -65,6 +65,8 @@ CREATE TABLE rascunhos (
   destino     text NOT NULL,
   hash        text NOT NULL,
   criado_em   timestamptz NOT NULL DEFAULT now(),
+  -- Quando este texto foi mostrado inteiro ao Thiago (pacote, "mudar" ou aviso de mudança); sem isso, "ok N" não envia.
+  mostrado_em timestamptz,
   UNIQUE (demanda_id, versao)
 );
 

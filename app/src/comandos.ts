@@ -1,7 +1,8 @@
 // Interpretação pura de comandos curtos do Thiago e de datas ("quinta 15h"). Sem banco, sem IA.
 
 export type Comando =
-  | { tipo: 'aprovar'; numero: number }
+  // versao: a do rascunho que o painel exibiu; se vier, só aprova essa versão.
+  | { tipo: 'aprovar'; numero: number; versao?: number }
   | { tipo: 'aguardar' | 'comigo' | 'concluir'; numero: number }
   | { tipo: 'agendar'; numero: number; quando: string }
   | { tipo: 'mudar'; numero: number; texto: string }

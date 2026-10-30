@@ -6,6 +6,7 @@ import type { ResultadoEnvio } from './executor.js';
 import {
   atualizarDemanda,
   buscarDemanda,
+  marcarMostrado,
   mudarEtapa,
   rascunhoAtual,
   salvarRascunho,
@@ -65,7 +66,7 @@ export async function aplicarComando(d: DepsAcoes, c: ComandoDeDemanda, origem: 
 
   switch (c.tipo) {
     case 'aprovar':
-      return aprovar(d, dem, origem);
+      return aprovar(d, dem, origem, c.versao);
 
     case 'mudar': {
       const atual = await rascunhoAtual(d.db, n);
@@ -78,7 +79,9 @@ export async function aplicarComando(d: DepsAcoes, c: ComandoDeDemanda, origem: 
       if (atual) {
         await d.db.query(`INSERT INTO exemplos_estilo (empresa_id, antes, depois) VALUES ($1, $2, $3)`, [dem.empresaId, atual.texto, c.texto]);
       }
-      await salvarRascunho(d.db, n, c.texto, destino);
+      const novo = await salvarRascunho(d.db, n, c.texto, destino);
+      // A resposta abaixo mostra o texto inteiro: esta versão já pode ser aprovada com "ok N".
+      await marcarMostrado(d.db, novo.id);
       return `Ana: nova resposta para #${n}:\n${c.texto}\n\nResponda ok ${n} para enviar.`;
     }
 
@@ -100,10 +103,23 @@ export async function aplicarComando(d: DepsAcoes, c: ComandoDeDemanda, origem: 
   }
 }
 
-async function aprovar(d: DepsAcoes, dem: Demanda, origem: 'whatsapp' | 'painel'): Promise<string> {
+/**
+ * Só envia a versão que o Thiago viu inteira: a que o painel exibiu (`versao`) ou uma já mostrada no WhatsApp.
+ * Versão nunca mostrada não sai: a Ana mostra o texto e pede um novo "ok N".
+ */
+async function aprovar(d: DepsAcoes, dem: Demanda, origem: 'whatsapp' | 'painel', versao?: number): Promise<string> {
   const n = dem.id;
   const rascunho = await rascunhoAtual(d.db, n);
   if (!rascunho) return aplicarSugestao(d, dem);
+  if (versao !== undefined && versao !== rascunho.versao) {
+    return `#${n}: a resposta mudou desde que a página abriu. Recarregue e confira.`;
+  }
+  // A versão que o painel exibiu conta como vista.
+  if (versao !== undefined) await marcarMostrado(d.db, rascunho.id);
+  else if (rascunho.mostradoEm === null) {
+    await marcarMostrado(d.db, rascunho.id);
+    return `#${n} mudou. Nova resposta: "${rascunho.texto}". Responda ok ${n} para enviar.`;
+  }
 
   const ap = await d.db.query(`INSERT INTO aprovacoes (rascunho_id, hash, origem) VALUES ($1, $2, $3) RETURNING id`, [
     rascunho.id,

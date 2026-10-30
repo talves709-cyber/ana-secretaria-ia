@@ -2,7 +2,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Db } from '../src/db.js';
 import { aplicarComando, type DepsAcoes } from '../src/acoes.js';
 import type { ResultadoEnvio } from '../src/executor.js';
-import { buscarDemanda, criarDemanda, garantirClienteDaConversa, rascunhoAtual, salvarRascunho, type EtapaSugerida } from '../src/demandas.js';
+import {
+  buscarDemanda,
+  criarDemanda,
+  garantirClienteDaConversa,
+  marcarMostrado,
+  rascunhoAtual,
+  salvarRascunho,
+  type EtapaSugerida,
+} from '../src/demandas.js';
+import { transacaoDoEspecialista } from '../src/especialista-dados.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 let db: Db;
@@ -41,7 +50,11 @@ async function criar(sugerida: EtapaSugerida | null = null, comRascunho = true):
     etapaSugerida: sugerida,
     prioridade: 'media',
   });
-  if (comRascunho) await salvarRascunho(db, dem.id, 'Bom dia, segue.', 'c1@s.whatsapp.net');
+  if (comRascunho) {
+    // Como se o pacote da Ana já tivesse mostrado a resposta ao Thiago.
+    const r = await salvarRascunho(db, dem.id, 'Bom dia, segue.', 'c1@s.whatsapp.net');
+    await marcarMostrado(db, r.id);
+  }
   return dem.id;
 }
 
@@ -127,6 +140,15 @@ describe('aplicarComando', () => {
     expect(enviarAprovado).not.toHaveBeenCalled();
   });
 
+  it('a resposta do mudar já conta como mostrada: ok N envia a versão nova', async () => {
+    const id = await criar();
+    const { d, enviarAprovado } = deps();
+    await aplicarComando(d, { tipo: 'mudar', numero: id, texto: 'Texto meu' }, 'whatsapp');
+    expect((await rascunhoAtual(db, id))?.mostradoEm).not.toBeNull();
+    expect(await aplicarComando(d, { tipo: 'aprovar', numero: id }, 'whatsapp')).toContain('enviada');
+    expect(enviarAprovado).toHaveBeenCalledTimes(1);
+  });
+
   it('agendar com data válida grava prazo e etapa', async () => {
     const id = await criar();
     const { d } = deps();
@@ -157,5 +179,46 @@ describe('aplicarComando', () => {
     expect(enviarAprovado).not.toHaveBeenCalled();
     const h = await db.query(`SELECT autor, motivo FROM demanda_etapas WHERE demanda_id = $1 ORDER BY id DESC LIMIT 1`, [id]);
     expect(h.rows[0]).toEqual({ autor: 'thiago', motivo: 'comando' });
+  });
+});
+
+describe('aprovar só envia a versão que o Thiago viu', () => {
+  it('especialista junta e grava v2: ok N não envia, mostra o texto inteiro; o ok seguinte envia', async () => {
+    const id = await criar('concluir');
+    const longa = `Bom dia! ${'Detalhe do frete. '.repeat(30)}Fim.`;
+    await transacaoDoEspecialista(db, (e) => e.salvarRascunho(id, longa, 'c1@s.whatsapp.net'));
+    const { d, enviarAprovado } = deps();
+
+    const primeira = await aplicarComando(d, { tipo: 'aprovar', numero: id }, 'whatsapp');
+    expect(primeira).toBe(`#${id} mudou. Nova resposta: "${longa}". Responda ok ${id} para enviar.`);
+    expect(enviarAprovado).not.toHaveBeenCalled();
+    expect(await contar('aprovacoes')).toBe(0);
+    expect((await buscarDemanda(db, id))?.etapa).toBe('novo');
+
+    const segunda = await aplicarComando(d, { tipo: 'aprovar', numero: id }, 'whatsapp');
+    expect(segunda).toContain('enviada');
+    expect(enviarAprovado).toHaveBeenCalledTimes(1);
+    const ap = await db.query(`SELECT r.versao FROM aprovacoes a JOIN rascunhos r ON r.id = a.rascunho_id`);
+    expect(ap.rows).toEqual([{ versao: 2 }]);
+  });
+
+  it('painel com a versão que a página exibiu envia mesmo sem mostrado_em', async () => {
+    const id = await criar('concluir');
+    await transacaoDoEspecialista(db, (e) => e.salvarRascunho(id, 'v2 no painel', 'c1@s.whatsapp.net'));
+    const { d, enviarAprovado } = deps();
+    expect(await aplicarComando(d, { tipo: 'aprovar', numero: id, versao: 2 }, 'painel')).toContain('enviada');
+    expect(enviarAprovado).toHaveBeenCalledTimes(1);
+    expect((await rascunhoAtual(db, id))?.mostradoEm).not.toBeNull();
+  });
+
+  it('painel com versão velha é recusado', async () => {
+    const id = await criar('concluir');
+    await transacaoDoEspecialista(db, (e) => e.salvarRascunho(id, 'v2', 'c1@s.whatsapp.net'));
+    const { d, enviarAprovado } = deps();
+    const msg = await aplicarComando(d, { tipo: 'aprovar', numero: id, versao: 1 }, 'painel');
+    expect(msg).toBe(`#${id}: a resposta mudou desde que a página abriu. Recarregue e confira.`);
+    expect(enviarAprovado).not.toHaveBeenCalled();
+    expect(await contar('aprovacoes')).toBe(0);
+    expect((await buscarDemanda(db, id))?.etapa).toBe('novo');
   });
 });

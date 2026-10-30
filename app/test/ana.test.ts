@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { avisarUrgente, cicloAna, formatarPacote, type DepsAna, type ItemPacote } from '../src/ana.js';
 import type { Db } from '../src/db.js';
+import { transacaoDoEspecialista } from '../src/especialista-dados.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 let db: Db;
@@ -49,6 +50,7 @@ const item = (o: Partial<ItemPacote> = {}): ItemPacote => ({
   empresa: 'Kamex',
   cliente: 'Cliente X',
   titulo: 'Proforma do pedido 530.',
+  etapa: 'novo',
   etapaSugerida: 'concluir',
   resposta: 'Bom dia, segue...',
   prioridade: 'media',
@@ -63,7 +65,7 @@ describe('formatarPacote', () => {
     ]);
     expect(texto).toBe(
       [
-        'Ana: 2 pedidos novos',
+        'Ana: 2 pedidos novos ou com novidade',
         '',
         '#14 Kamex · Cliente X',
         'Proforma do pedido 530.',
@@ -80,18 +82,22 @@ describe('formatarPacote', () => {
 
   it('usa singular, omite empresa nula e rotula as sugestões', () => {
     const texto = formatarPacote([item({ empresa: null, etapaSugerida: 'aguardar' })]);
-    expect(texto).toContain('Ana: 1 pedido novo\n');
+    expect(texto).toContain('Ana: 1 pedido novo ou com novidade\n');
     expect(texto).toContain('#14 Cliente X\n');
     expect(texto).toContain('Sugiro: responder e aguardar retorno.');
     expect(formatarPacote([item({ etapaSugerida: 'agendar' })])).toContain('Sugiro: agendar.');
     expect(formatarPacote([item({ etapaSugerida: 'comigo' })])).toContain('Sugiro: fica com você.');
   });
 
-  it('trunca a resposta em 300 caracteres com reticências', () => {
-    const texto = formatarPacote([item({ resposta: 'a'.repeat(400) })]);
-    expect(texto).toContain(`Resposta: "${'a'.repeat(300)}…"`);
-    expect(texto).not.toContain('a'.repeat(301));
-    expect(formatarPacote([item({ resposta: 'b'.repeat(300) })])).toContain(`"${'b'.repeat(300)}"`);
+  it('leva a resposta inteira, sem cortar', () => {
+    const longa = `${'a'.repeat(400)} fim`;
+    expect(formatarPacote([item({ resposta: longa })])).toContain(`Resposta: "${longa}"`);
+  });
+
+  it('marca com (novidade) o item que não está em novo', () => {
+    const texto = formatarPacote([item(), item({ id: 15, etapa: 'comigo' })]);
+    expect(texto).toContain('#14 Kamex · Cliente X\n');
+    expect(texto).toContain('#15 (novidade) Kamex · Cliente X\n');
   });
 });
 
@@ -116,13 +122,15 @@ describe('cicloAna', () => {
     expect(enviadas).toHaveLength(2);
   });
 
-  it('ordena por prioridade e depois por criação, e só pega etapa novo', async () => {
+  it('ordena por prioridade e depois por criação, e deixa de fora concluídas e já avisadas', async () => {
     const baixa = await demanda({ prioridade: 'baixa', criado: '2026-10-20T10:00:00Z' });
     const mediaVelha = await demanda({ prioridade: 'media', criado: '2026-10-21T10:00:00Z' });
     const mediaNova = await demanda({ prioridade: 'media', criado: '2026-10-22T10:00:00Z' });
     const urgente = await demanda({ prioridade: 'urgente', criado: '2026-10-25T10:00:00Z' });
     const alta = await demanda({ prioridade: 'alta', criado: '2026-10-24T10:00:00Z' });
-    await demanda({ etapa: 'comigo' });
+    await demanda({ etapa: 'concluido', prioridade: 'urgente' });
+    const avisada = await demanda({ etapa: 'comigo', prioridade: 'urgente' });
+    await db.query(`UPDATE demandas SET avisada_em = now() WHERE id = $1`, [avisada]);
     await cicloAna(deps());
     const t = enviadas[0]!;
     const pos = [urgente, alta, mediaVelha, mediaNova, baixa].map((id) => t.indexOf(`#${id} `));
@@ -143,11 +151,44 @@ describe('cicloAna', () => {
     expect(enviadas[0]).not.toContain('velho');
   });
 
-  it('se o envio falha, devolve a reserva e relança', async () => {
-    await demanda();
+  it('se o envio falha, devolve a reserva e a marca de mostrado, e relança', async () => {
+    const id = await demanda();
+    await db.query(`INSERT INTO rascunhos (demanda_id, versao, texto, destino, hash) VALUES ($1,1,'t','d','h')`, [id]);
     await expect(cicloAna(deps(DIA_UTIL, { enviar: falha('evolution fora') }))).rejects.toThrow('evolution fora');
     expect((await db.query(`SELECT avisada_em FROM demandas`)).rows[0].avisada_em).toBeNull();
+    expect((await db.query(`SELECT mostrado_em FROM rascunhos`)).rows[0].mostrado_em).toBeNull();
     expect(await cicloAna(deps())).toBe(1);
+    expect((await db.query(`SELECT mostrado_em FROM rascunhos`)).rows[0].mostrado_em).not.toBeNull();
+  });
+
+  it('marca como mostrado só o rascunho atual que foi no pacote', async () => {
+    const id = await demanda();
+    await db.query(
+      `INSERT INTO rascunhos (demanda_id, versao, texto, destino, hash) VALUES ($1,1,'velho','d','h1'),($1,2,'atual','d','h2')`,
+      [id],
+    );
+    await cicloAna(deps());
+    const r = await db.query(`SELECT versao, mostrado_em FROM rascunhos ORDER BY versao`);
+    expect(r.rows[0].mostrado_em).toBeNull();
+    expect(r.rows[1].mostrado_em).not.toBeNull();
+  });
+
+  it('resposta nova do especialista numa demanda já avisada em comigo volta no pacote como novidade', async () => {
+    const conv = await db.query(`INSERT INTO conversas (jid, tipo) VALUES ('c@s.whatsapp.net','individual') RETURNING id`);
+    const id = await demanda({ etapa: 'comigo', titulo: 'Frete' });
+    await db.query(`UPDATE demandas SET conversa_id = $2 WHERE id = $1`, [id, conv.rows[0].id]);
+    await db.query(`INSERT INTO rascunhos (demanda_id, versao, texto, destino, hash) VALUES ($1,1,'v1','c@s.whatsapp.net','h')`, [id]);
+    expect(await cicloAna(deps())).toBe(1);
+    expect(await cicloAna(deps())).toBe(0);
+
+    await transacaoDoEspecialista(db, (e) => e.salvarRascunho(id, 'texto da v2', 'c@s.whatsapp.net'));
+    expect((await db.query(`SELECT avisada_em FROM demandas WHERE id = $1`, [id])).rows[0].avisada_em).toBeNull();
+
+    expect(await cicloAna(deps())).toBe(1);
+    expect(enviadas[1]).toContain(`#${id} (novidade) `);
+    expect(enviadas[1]).toContain('Resposta: "texto da v2"');
+    const v2 = await db.query(`SELECT mostrado_em FROM rascunhos WHERE demanda_id = $1 AND versao = 2`, [id]);
+    expect(v2.rows[0].mostrado_em).not.toBeNull();
   });
 });
 

@@ -37,6 +37,8 @@ export interface Rascunho {
   destino: string;
   hash: string;
   criadoEm: Date;
+  /** Quando o texto inteiro foi mostrado ao Thiago; sem isso, "ok N" não envia. */
+  mostradoEm: Date | null;
 }
 
 export type NovaDemanda = Omit<Demanda, 'id' | 'etapa' | 'avisadaEm' | 'criadoEm' | 'etapaDesde'>;
@@ -44,7 +46,7 @@ export type NovaDemanda = Omit<Demanda, 'id' | 'etapa' | 'avisadaEm' | 'criadoEm
 const COLUNAS_DEMANDA = `id, cliente_id, conversa_id, empresa_id, categoria_id, titulo, plano, prazo, prazo_tem_hora,
   etapa, etapa_sugerida, prioridade, avisada_em, criado_em, etapa_desde`;
 
-const COLUNAS_RASCUNHO = 'id, demanda_id, versao, texto, destino, hash, criado_em';
+const COLUNAS_RASCUNHO = 'id, demanda_id, versao, texto, destino, hash, criado_em, mostrado_em';
 
 // O driver devolve bigint como string; os ids são pequenos, então convertemos para number.
 const num = (v: unknown): number => Number(v);
@@ -79,6 +81,7 @@ function paraRascunho(r: Record<string, any>): Rascunho {
     destino: r.destino,
     hash: r.hash,
     criadoEm: r.criado_em,
+    mostradoEm: r.mostrado_em,
   };
 }
 
@@ -229,4 +232,9 @@ export async function salvarRascunho(db: Conexao, demandaId: number, texto: stri
 export async function rascunhoAtual(db: Conexao, demandaId: number): Promise<Rascunho | null> {
   const r = await db.query(`SELECT ${COLUNAS_RASCUNHO} FROM rascunhos WHERE demanda_id = $1 ORDER BY versao DESC LIMIT 1`, [demandaId]);
   return r.rows.length ? paraRascunho(r.rows[0]) : null;
+}
+
+/** Registra que o texto inteiro deste rascunho foi mostrado ao Thiago (só a primeira vez conta). */
+export async function marcarMostrado(db: Conexao, rascunhoId: number): Promise<void> {
+  await db.query(`UPDATE rascunhos SET mostrado_em = now() WHERE id = $1 AND mostrado_em IS NULL`, [rascunhoId]);
 }

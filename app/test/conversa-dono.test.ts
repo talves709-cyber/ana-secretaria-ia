@@ -87,6 +87,7 @@ describe('tratarMensagemDoDono', () => {
       fecharConfirmacao: vi.fn(async (_id: number, _estado: 'confirmada' | 'cancelada') => {
         pendente = null;
       }),
+      mostrarResposta: vi.fn(async (n: number) => (n === 7 ? 'Bom dia, segue a proforma completa.' : null)),
       responder: vi.fn(async (t: string) => {
         respostas.push(t);
       }),
@@ -120,6 +121,14 @@ describe('tratarMensagemDoDono', () => {
     expect(d.fecharConfirmacao).toHaveBeenCalledWith(1, 'cancelada');
     expect(d.aplicar).not.toHaveBeenCalled();
     expect(respostas[1]).toMatch(/^Ana: Cancelado/);
+  });
+
+  it('a confirmação de aprovar mostra o texto inteiro da resposta atual', async () => {
+    const { d, respostas } = criar([{ tipo: 'aprovar', numero: 7 }, { tipo: 'aprovar', numero: 8 }]);
+    await tratarMensagemDoDono(d, 'manda as duas');
+    expect(d.mostrarResposta).toHaveBeenCalledWith(7);
+    expect(respostas[0]).toContain('#7 (Acme - Proforma de abril): "Bom dia, segue a proforma completa."');
+    expect(respostas[0]).toContain('aprovar e enviar a resposta de #8. Confirma?'); // sem resposta: só a descrição
   });
 
   it('a confirmação mostra empresa e título da demanda', async () => {
@@ -169,6 +178,24 @@ describe('tratarMensagemDoDono', () => {
 });
 
 describe('confirmações no banco', () => {
+  it('mostrarResposta devolve o texto atual inteiro e o marca como mostrado; sem rascunho, null', async () => {
+    const c = confirmacoesDoBanco(db);
+    const cli = await db.query(`INSERT INTO clientes (nome) VALUES ('C') RETURNING id`);
+    const dem = await db.query(`INSERT INTO demandas (cliente_id, titulo, prioridade) VALUES ($1,'t','media') RETURNING id`, [
+      cli.rows[0].id,
+    ]);
+    const id = Number(dem.rows[0].id);
+    expect(await c.mostrarResposta(id)).toBeNull();
+    await db.query(
+      `INSERT INTO rascunhos (demanda_id, versao, texto, destino, hash) VALUES ($1,1,'velho','d','h1'),($1,2,'atual','d','h2')`,
+      [id],
+    );
+    expect(await c.mostrarResposta(id)).toBe('atual');
+    const r = await db.query(`SELECT versao, mostrado_em FROM rascunhos ORDER BY versao`);
+    expect(r.rows[0].mostrado_em).toBeNull();
+    expect(r.rows[1].mostrado_em).not.toBeNull();
+  });
+
   it('confirmação com mais de 30 min não vale', async () => {
     const c = confirmacoesDoBanco(db);
     await c.salvarConfirmacao([{ tipo: 'concluir', numero: 5 }], 'texto');

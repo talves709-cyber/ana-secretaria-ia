@@ -21,6 +21,8 @@ export interface CartaoQuadro {
   etapaDesde: Date;
   /** Texto do rascunho de resposta mais recente, se houver. */
   resposta: string | null;
+  /** Versão desse rascunho: o formulário a devolve para o Aprovar só enviar o que a página mostrou. */
+  versao: number | null;
   etapaSugerida: EtapaSugerida | null;
 }
 
@@ -42,12 +44,12 @@ const DIA_MS = 24 * 60 * 60 * 1000;
 const LIMITE_FICHA = 200;
 
 const SELECT_CARTAO = `SELECT d.id, d.etapa, d.titulo, d.cliente_id, c.nome AS cliente, e.nome AS empresa, k.nome AS categoria,
-    d.prioridade, d.prazo, d.etapa_desde, d.etapa_sugerida,
-    (SELECT r.texto FROM rascunhos r WHERE r.demanda_id = d.id ORDER BY r.versao DESC LIMIT 1) AS resposta
+    d.prioridade, d.prazo, d.etapa_desde, d.etapa_sugerida, r.texto AS resposta, r.versao
   FROM demandas d
   JOIN clientes c ON c.id = d.cliente_id
   LEFT JOIN empresas e ON e.id = d.empresa_id
-  LEFT JOIN categorias k ON k.id = d.categoria_id`;
+  LEFT JOIN categorias k ON k.id = d.categoria_id
+  LEFT JOIN LATERAL (SELECT texto, versao FROM rascunhos WHERE demanda_id = d.id ORDER BY versao DESC LIMIT 1) r ON true`;
 
 const ORDEM_PRIORIDADE = `CASE d.prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END`;
 
@@ -64,6 +66,7 @@ function paraCartao(r: Record<string, any>): CartaoQuadro {
     prazo: r.prazo,
     etapaDesde: r.etapa_desde,
     resposta: r.resposta,
+    versao: r.versao == null ? null : Number(r.versao),
     etapaSugerida: r.etapa_sugerida,
   };
 }

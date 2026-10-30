@@ -109,7 +109,12 @@ export function transacaoDoEspecialista<T>(db: Db, fn: (e: EscritaEspecialista) 
       atualizarDemanda: (id, campos) => atualizarDemanda(c, id, campos),
       anexarItens: (demandaId, ids) => anexarItens(c, demandaId, ids),
       mudarEtapa: (id, para, autor, motivo) => mudarEtapa(c, id, para, autor, motivo),
-      salvarRascunho: (demandaId, texto, destino) => salvarRascunho(c, demandaId, texto, destino),
+      salvarRascunho: async (demandaId, texto, destino) => {
+        const r = await salvarRascunho(c, demandaId, texto, destino);
+        // Resposta nova numa demanda já avisada: zera o aviso para o ciclo da Ana mostrá-la ao Thiago.
+        await c.query(`UPDATE demandas SET avisada_em = NULL WHERE id = $1`, [demandaId]);
+        return r;
+      },
     }),
   );
 }

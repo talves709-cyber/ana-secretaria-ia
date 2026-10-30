@@ -1,19 +1,21 @@
-// A Ana avisa o Thiago: pacotes de pedidos novos, urgentes na hora, e aviso de limite de IA.
+// A Ana avisa o Thiago: pacotes de pedidos novos ou com novidade, urgentes na hora, e aviso de limite de IA.
 // A mensagem é para o próprio dono (não passa pelo Executor, que é só para terceiros).
 import type { Db } from './db.js';
-import type { EtapaSugerida } from './demandas.js';
+import type { Etapa, EtapaSugerida } from './demandas.js';
 import { emSilencio } from './silencio.js';
 import { gastoDoMes, situacaoLimite } from './uso-ia.js';
 
 const MAX_POR_PACOTE = 5;
-const MAX_RESPOSTA = 300;
 
 export interface ItemPacote {
   id: number;
   empresa: string | null;
   cliente: string;
   titulo: string;
+  /** Fora de 'novo', o item volta por novidade (ex.: resposta nova numa demanda já avisada). */
+  etapa: Etapa;
   etapaSugerida: EtapaSugerida | null;
+  /** Texto inteiro do rascunho atual: o Thiago aprova exatamente o que leu. */
   resposta: string | null;
   prioridade: string;
 }
@@ -35,28 +37,26 @@ const ROTULO_SUGESTAO: Record<EtapaSugerida, string> = {
   comigo: 'fica com você',
 };
 
-function cortar(texto: string): string {
-  return texto.length > MAX_RESPOSTA ? `${texto.slice(0, MAX_RESPOSTA)}…` : texto;
-}
-
 export function formatarPacote(itens: ItemPacote[]): string {
   const blocos = itens.map((i) => {
-    const linhas = [`#${i.id} ${i.empresa ? `${i.empresa} · ` : ''}${i.cliente}`, i.titulo];
+    const novidade = i.etapa === 'novo' ? '' : ' (novidade)';
+    const linhas = [`#${i.id}${novidade} ${i.empresa ? `${i.empresa} · ` : ''}${i.cliente}`, i.titulo];
     if (i.etapaSugerida) linhas.push(`Sugiro: ${ROTULO_SUGESTAO[i.etapaSugerida]}.`);
-    if (i.resposta) linhas.push(`Resposta: "${cortar(i.resposta)}"`);
+    if (i.resposta) linhas.push(`Resposta: "${i.resposta}"`);
     return linhas.join('\n');
   });
-  const titulo = `Ana: ${itens.length} ${itens.length === 1 ? 'pedido novo' : 'pedidos novos'}`;
+  const titulo = `Ana: ${itens.length} ${itens.length === 1 ? 'pedido novo' : 'pedidos novos'} ou com novidade`;
   const rodape = 'Responda: ok 14 · 14 aguardar · 14 comigo · 14 agenda quinta 15h · 14 muda: novo texto';
   return `${titulo}\n\n${blocos.join('\n\n')}\n\n${rodape}`;
 }
 
 const SQL_ITENS = `
-  SELECT d.id, e.nome AS empresa, c.nome AS cliente, d.titulo, d.etapa_sugerida, d.prioridade,
-         (SELECT r.texto FROM rascunhos r WHERE r.demanda_id = d.id ORDER BY r.versao DESC LIMIT 1) AS resposta
+  SELECT d.id, e.nome AS empresa, c.nome AS cliente, d.titulo, d.etapa, d.etapa_sugerida, d.prioridade,
+         r.id AS rascunho_id, r.texto AS resposta
     FROM demandas d
     JOIN clientes c ON c.id = d.cliente_id
-    LEFT JOIN empresas e ON e.id = d.empresa_id`;
+    LEFT JOIN empresas e ON e.id = d.empresa_id
+    LEFT JOIN LATERAL (SELECT id, texto FROM rascunhos WHERE demanda_id = d.id ORDER BY versao DESC LIMIT 1) r ON true`;
 
 function paraItem(r: Record<string, any>): ItemPacote {
   return {
@@ -64,6 +64,7 @@ function paraItem(r: Record<string, any>): ItemPacote {
     empresa: r.empresa,
     cliente: r.cliente,
     titulo: r.titulo,
+    etapa: r.etapa,
     etapaSugerida: r.etapa_sugerida,
     resposta: r.resposta,
     prioridade: r.prioridade,
@@ -71,8 +72,9 @@ function paraItem(r: Record<string, any>): ItemPacote {
 }
 
 /**
- * Reserva (marca avisada_em) antes de enviar, para duas execuções não avisarem a mesma demanda;
- * se o envio falhar, devolve a reserva e relança, e o próximo ciclo tenta de novo.
+ * Reserva (marca avisada_em) antes de enviar, para duas execuções não avisarem a mesma demanda,
+ * e marca como mostrado o rascunho que vai inteiro no pacote (só esse "ok N" pode enviar);
+ * se o envio falhar, desfaz as duas marcas e relança, e o próximo ciclo tenta de novo.
  */
 async function reservarEEnviar(d: DepsAna, ids: number[]): Promise<number> {
   if (ids.length === 0) return 0;
@@ -85,9 +87,17 @@ async function reservarEEnviar(d: DepsAna, ids: number[]): Promise<number> {
   if (lista.length === 0) return 0;
   const itens = await d.db.query(`${SQL_ITENS} WHERE d.id = ANY($1::bigint[])`, [lista]);
   const ordenados = lista.map((id) => paraItem(itens.rows.find((r) => Number(r.id) === id)!));
+  const rascunhos = itens.rows.filter((r) => r.rascunho_id != null).map((r) => Number(r.rascunho_id));
+  const mostrados = await d.db.query(
+    `UPDATE rascunhos SET mostrado_em = now() WHERE id = ANY($1::bigint[]) AND mostrado_em IS NULL RETURNING id`,
+    [rascunhos],
+  );
   try {
     await d.enviar(formatarPacote(ordenados));
   } catch (e) {
+    await d.db.query(`UPDATE rascunhos SET mostrado_em = NULL WHERE id = ANY($1::bigint[])`, [
+      mostrados.rows.map((r) => Number(r.id)),
+    ]);
     await d.db.query(`UPDATE demandas SET avisada_em = NULL WHERE id = ANY($1::bigint[])`, [lista]);
     throw e;
   }
@@ -115,13 +125,16 @@ async function avisarLimite(d: DepsAna, agora: Date): Promise<void> {
   }
 }
 
-/** Um ciclo: aviso de limite e um pacote de até 5 demandas novas, ambos só fora do silêncio. Devolve quantas demandas avisou. */
+/**
+ * Um ciclo: aviso de limite e um pacote de até 5 demandas abertas ainda não avisadas (novas, ou com novidade:
+ * o especialista zera avisada_em ao gravar resposta nova), ambos só fora do silêncio. Devolve quantas avisou.
+ */
 export async function cicloAna(d: DepsAna): Promise<number> {
   const agora = (d.agora ?? (() => new Date()))();
   if (emSilencio(agora, d.silencioInicio, d.silencioFim)) return 0;
   await avisarLimite(d, agora);
   const r = await d.db.query(
-    `SELECT id FROM demandas WHERE etapa = 'novo' AND avisada_em IS NULL
+    `SELECT id FROM demandas WHERE avisada_em IS NULL AND etapa <> 'concluido'
       ORDER BY CASE prioridade WHEN 'urgente' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END, criado_em, id
       LIMIT $1`,
     [MAX_POR_PACOTE],

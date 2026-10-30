@@ -7,6 +7,7 @@ import type { Config } from './config.js';
 import type { ComandoDeDemanda } from './comandos.js';
 import { interpretarComandos } from './comandos.js';
 import type { Db } from './db.js';
+import { marcarMostrado, rascunhoAtual } from './demandas.js';
 import type { MensagemNormalizada } from './normalizar.js';
 import type { UsoTokens } from './uso-ia.js';
 
@@ -53,6 +54,8 @@ export interface DepsConversaDono {
   confirmacaoPendente(): Promise<{ id: number; comandos: ComandoDeDemanda[] } | null>;
   salvarConfirmacao(comandos: ComandoDeDemanda[], texto: string): Promise<void>;
   fecharConfirmacao(id: number, estado: 'confirmada' | 'cancelada'): Promise<void>;
+  /** Texto inteiro da resposta atual da demanda, já marcada como mostrada; null sem resposta. */
+  mostrarResposta(numero: number): Promise<string | null>;
   responder(texto: string): Promise<void>;
 }
 
@@ -140,7 +143,13 @@ export async function tratarMensagemDoDono(d: DepsConversaDono, texto: string): 
   if (!livres || livres.length === 0) return d.responder(FORMAS_ACEITAS);
   await d.salvarConfirmacao(livres, texto);
   const demandas = await d.demandasAbertas();
-  return d.responder(`Ana: Entendi: ${livres.map((c) => descreverComando(c, demandas)).join('; ')}. Confirma? (sim/não)`);
+  const partes: string[] = [];
+  for (const c of livres) {
+    // Aprovar por texto livre: ele confirma vendo o texto inteiro que vai sair.
+    const resposta = c.tipo === 'aprovar' ? await d.mostrarResposta(c.numero) : null;
+    partes.push(resposta === null ? descreverComando(c, demandas) : `${descreverComando(c, demandas)}: "${resposta}"`);
+  }
+  return d.responder(`Ana: Entendi: ${partes.join('; ')}. Confirma? (sim/não)`);
 }
 
 // --- Confirmações no banco ---
@@ -165,6 +174,12 @@ export function confirmacoesDoBanco(db: Db) {
     },
     async fecharConfirmacao(id: number, estado: 'confirmada' | 'cancelada'): Promise<void> {
       await db.query(`UPDATE confirmacoes SET estado = $2 WHERE id = $1`, [id, estado]);
+    },
+    async mostrarResposta(numero: number): Promise<string | null> {
+      const r = await rascunhoAtual(db, numero);
+      if (!r) return null;
+      await marcarMostrado(db, r.id);
+      return r.texto;
     },
   };
 }

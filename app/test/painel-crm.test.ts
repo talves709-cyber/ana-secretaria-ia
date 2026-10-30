@@ -27,6 +27,7 @@ function cartao(extra: Partial<CartaoQuadro> = {}): CartaoQuadro {
     prazo: null,
     etapaDesde: new Date('2026-10-27T10:00:00Z'),
     resposta: null,
+    versao: null,
     etapaSugerida: null,
     ...extra,
   };
@@ -43,6 +44,13 @@ describe('paginaQuadro', () => {
   it('mostra "parado há 3 dias"', () => {
     const html = paginaQuadro([cartao({ etapaDesde: new Date('2026-10-24T14:00:00Z') })], {}, OPCOES, AGORA);
     expect(html).toContain('parado há 3 dias');
+  });
+
+  it('o formulário leva a versão da resposta exibida; sem resposta, não leva versão', () => {
+    const com = paginaQuadro([cartao({ resposta: 'Oi', versao: 3 })], {}, OPCOES, AGORA);
+    expect(com).toContain('<input type="hidden" name="versao" value="3">');
+    const sem = paginaQuadro([cartao()], {}, OPCOES, AGORA);
+    expect(sem).not.toContain('name="versao"');
   });
 
   it('põe cada cartão na coluna da etapa e não oferece ações em concluídas', () => {
@@ -133,6 +141,16 @@ describe('rotas', () => {
     expect(aplicarComando).toHaveBeenCalledWith(acoes, { tipo: 'aprovar', numero: 7 }, 'painel');
     expect(r.statusCode).toBe(302);
     expect(r.headers.location).toBe(`/painel/pipeline?empresa=1&msg=${encodeURIComponent('Ana: #7 enviada.')}`);
+  });
+
+  it('POST aprovar repassa a versão exibida; versão inválida é ignorada', async () => {
+    const { app, acoes } = montar();
+    const post = (payload: string) =>
+      app.inject({ method: 'POST', url: '/painel/demandas/7/acao', headers: { ...FORM, ...comSessao }, payload });
+    await post('acao=aprovar&versao=2');
+    expect(aplicarComando).toHaveBeenLastCalledWith(acoes, { tipo: 'aprovar', numero: 7, versao: 2 }, 'painel');
+    await post('acao=aprovar&versao=abc');
+    expect(aplicarComando).toHaveBeenLastCalledWith(acoes, { tipo: 'aprovar', numero: 7 }, 'painel');
   });
 
   it('agendar e mudar levam quando/texto; sem eles não chamam o comando', async () => {

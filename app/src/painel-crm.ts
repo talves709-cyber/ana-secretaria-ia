@@ -87,7 +87,7 @@ function cartaoHtml(c: CartaoQuadro, agora: Date, volta: string): string {
     c.etapa === 'concluido'
       ? ''
       : `<form method="post" action="/painel/demandas/${c.id}/acao">
-<input type="hidden" name="volta" value="${escapar(volta)}">
+<input type="hidden" name="volta" value="${escapar(volta)}">${c.versao != null ? `<input type="hidden" name="versao" value="${c.versao}">` : ''}
 <div class="acoes">${botao('aprovar', 'Aprovar')}${botao('aguardar', 'Aguardar')}${botao('comigo', 'Comigo')}${botao('concluir', 'Concluir')}</div>
 <details><summary>Agendar ou mudar a resposta</summary>
 <input type="text" name="quando" placeholder="Quando? Ex.: quinta 15h" maxlength="80">
@@ -186,9 +186,10 @@ function comMsg(volta: unknown, msg: string): string {
 
 type ComandoDeDemanda = Exclude<Comando, { tipo: 'confirmar' | 'cancelar' }>;
 
-function comando(acao: string, numero: number, quando: string, textoNovo: string): ComandoDeDemanda | string {
+function comando(acao: string, numero: number, quando: string, textoNovo: string, versao?: number): ComandoDeDemanda | string {
   switch (acao) {
     case 'aprovar':
+      return versao === undefined ? { tipo: 'aprovar', numero } : { tipo: 'aprovar', numero, versao };
     case 'aguardar':
     case 'comigo':
     case 'concluir':
@@ -226,7 +227,7 @@ export function registrarPainelCrm(app: FastifyInstance, deps: DepsPainelCrm) {
     const corpo = (req.body ?? {}) as Record<string, unknown>;
     const numero = inteiro((req.params as { id?: string }).id);
     if (!numero) return reply.redirect(comMsg(corpo.volta, 'Demanda inválida.'));
-    const c = comando(texto(corpo.acao), numero, texto(corpo.quando), texto(corpo.texto));
+    const c = comando(texto(corpo.acao), numero, texto(corpo.quando), texto(corpo.texto), inteiro(corpo.versao));
     if (typeof c === 'string') return reply.redirect(comMsg(corpo.volta, c));
     let retorno: string;
     try {
