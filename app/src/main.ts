@@ -26,6 +26,7 @@ import {
 } from './fila.js';
 import { migrar } from './migrate.js';
 import { registrarPainel } from './painel.js';
+import { registrarPainelCrm } from './painel-crm.js';
 import { processarEvento } from './processar.js';
 import { gravarEvento, marcarConversasDeComando, resumoDiario, resumoMensagens, textoDaMensagem } from './repositorio.js';
 import { criarServidor } from './webhook.js';
@@ -195,6 +196,11 @@ registrarPainel(servidor, {
   qrCode: () => evolution.conectar(config.EVOLUTION_INSTANCE),
   resumo: () => resumoMensagens(db),
   resumoDiario: () => resumoDiario(db),
+});
+
+registrarPainelCrm(servidor, {
+  sessaoSegredo: config.SESSAO_SEGREDO,
+  acoes: { db, enviarAprovado: (id) => enviarAprovado(db, canalWhatsApp, id), agora: () => new Date() },
 });
 
 await servidor.listen({ host: '0.0.0.0', port: config.PORT });
