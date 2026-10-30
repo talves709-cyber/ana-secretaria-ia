@@ -77,7 +77,7 @@ function paraRascunho(r: Record<string, any>): Rascunho {
   };
 }
 
-async function emTransacao<T>(db: Db, fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> {
+export async function emTransacao<T>(db: Db, fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> {
   const c = await db.connect();
   try {
     await c.query('BEGIN');
@@ -197,9 +197,14 @@ export async function buscarDemanda(db: Db, id: number): Promise<Demanda | null>
   return r.rows.length ? paraDemanda(r.rows[0]) : null;
 }
 
+/** Hash do que é aprovado: cobre destino e texto. Única fórmula, usada ao salvar e ao revalidar o envio. */
+export function hashRascunho(destino: string, texto: string): string {
+  return createHash('sha256').update(`${destino}\n${texto}`).digest('hex');
+}
+
 /** Nova versão do rascunho (max + 1). O hash cobre destino e texto: o que foi aprovado é exatamente o que sai. */
 export async function salvarRascunho(db: Db, demandaId: number, texto: string, destino: string): Promise<Rascunho> {
-  const hash = createHash('sha256').update(`${destino}\n${texto}`).digest('hex');
+  const hash = hashRascunho(destino, texto);
   return emTransacao(db, async (c) => {
     // Trava a demanda para que versões concorrentes não colidam em (demanda_id, versao).
     const trava = await c.query(`SELECT id FROM demandas WHERE id = $1 FOR UPDATE`, [demandaId]);
