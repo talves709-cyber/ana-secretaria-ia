@@ -4,14 +4,19 @@ import { Evolution } from './evolution.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonomia } from './classificacao-dados.js';
 import { classificarConversa, perguntarIA } from './classificador.js';
-import { registrarUsoSeguro } from './uso-ia.js';
+import { registrarUsoSeguro, gastoDoMes, situacaoLimite } from './uso-ia.js';
+import { analisarConversa, perguntarEspecialista } from './especialista.js';
+import { baseDaEmpresa, carregarBloco, exemplosDaEmpresa, nomeDaEmpresa, transacaoDoEspecialista } from './especialista-dados.js';
+import { demandasAbertasDaConversa } from './demandas.js';
 import {
   agendarClassificacao,
   criarFila,
   criarWorker,
   FILA_CLASSIFICAR,
+  FILA_ESPECIALISTA,
   FILA_EVENTOS,
   type JobClassificar,
+  type JobEspecialista,
   type JobEvento,
 } from './fila.js';
 import { migrar } from './migrate.js';
@@ -27,6 +32,7 @@ const novas = await migrar(db);
 if (novas.length) console.log(`Migrações aplicadas: ${novas.join(', ')}`);
 
 const filaClassificar = criarFila<JobClassificar>(FILA_CLASSIFICAR, config.REDIS_URL);
+const filaEspecialista = criarFila<JobEspecialista>(FILA_ESPECIALISTA, config.REDIS_URL);
 const classificacaoLigada = Boolean(config.ANTHROPIC_API_KEY);
 console.log(
   classificacaoLigada
@@ -76,11 +82,45 @@ const workerClassificar = anthropic
         },
         job.data.conversaId,
       );
-      if (n) console.log(`Conversa ${job.data.conversaId}: ${n} mensagens classificadas`);
+      if (n) {
+        console.log(`Conversa ${job.data.conversaId}: ${n} mensagens classificadas`);
+        const conversaId = job.data.conversaId;
+        await filaEspecialista.add('conversa', { conversaId }, { jobId: `esp-${conversaId}-${Date.now()}` });
+      }
     })
   : null;
 workerClassificar?.on('failed', (job, erro) =>
   console.error(`Classificação da conversa ${job?.data.conversaId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
+);
+
+const workerEspecialista = anthropic
+  ? criarWorker<JobEspecialista>(FILA_ESPECIALISTA, config.REDIS_URL, 1, async (job) => {
+      const r = await analisarConversa(
+        {
+          carregarBloco: (id) => carregarBloco(db, id),
+          demandasAbertas: (id) => demandasAbertasDaConversa(db, id),
+          baseDaEmpresa: (id) => baseDaEmpresa(db, id),
+          nomeDaEmpresa: (id) => nomeDaEmpresa(db, id),
+          exemplosDaEmpresa: (id) => exemplosDaEmpresa(db, id),
+          transacao: (fn) => transacaoDoEspecialista(db, fn),
+          perguntar: (sistema, pedido) =>
+            perguntarEspecialista(
+              { client: anthropic, modelo: config.CLAUDE_MODELO_ESPECIALISTA, esforco: config.CLAUDE_ESFORCO_ESPECIALISTA },
+              sistema,
+              pedido,
+            ),
+          registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'especialista', modelo, uso),
+          podeGastar: async () => situacaoLimite(await gastoDoMes(db), config.IA_LIMITE_MENSAL_USD) !== 'estourado',
+          // Placeholder: a Task 11 troca pelo aviso real ao Thiago.
+          avisarUrgente: async (demandaId) => console.log(`urgente: demanda ${demandaId}`),
+        },
+        job.data.conversaId,
+      );
+      if (r.decisao !== 'pulada') console.log(`Conversa ${job.data.conversaId}: especialista ${r.decisao}, demanda ${r.demandaId ?? '-'}`);
+    })
+  : null;
+workerEspecialista?.on('failed', (job, erro) =>
+  console.error(`Especialista na conversa ${job?.data.conversaId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
 );
 
 const servidor = criarServidor({
@@ -115,8 +155,10 @@ async function encerrar() {
   await servidor.close();
   await worker.close();
   await workerClassificar?.close();
+  await workerEspecialista?.close();
   await fila.close();
   await filaClassificar.close();
+  await filaEspecialista.close();
   await db.end();
   process.exit(0);
 }

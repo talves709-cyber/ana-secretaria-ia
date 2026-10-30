@@ -3,12 +3,17 @@ import { Redis } from 'ioredis';
 
 export const FILA_EVENTOS = 'eventos';
 export const FILA_CLASSIFICAR = 'classificar';
+export const FILA_ESPECIALISTA = 'especialista';
 
 export interface JobEvento {
   eventoId: number;
 }
 
 export interface JobClassificar {
+  conversaId: number;
+}
+
+export interface JobEspecialista {
   conversaId: number;
 }
 
