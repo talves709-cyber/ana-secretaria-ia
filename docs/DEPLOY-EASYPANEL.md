@@ -149,8 +149,12 @@ arquivo aparecer na pasta do Drive.
    (pendências) e discutir um número próprio para a Ana.
 4. Responder `ok <N>`: a resposta sai na conversa de teste e o cartão vai para **Concluído**.
 5. Testar `<N> muda: ...` (nova versão e pedido de confirmação) e um texto livre com "sim".
-6. Se os comandos não forem reconhecidos, ver nos logs o identificador da conversa dele e
-   colocar em `DONO_JIDS_EXTRA`.
+6. Se os comandos não forem reconhecidos (o Thiago manda `ok <N>` e nada acontece): logo depois
+   da mensagem dele, procurar nos logs do `app` a linha
+   `mensagem sua numa conversa @lid não reconhecida: <identificador>@lid`. Copiar esse
+   identificador para `DONO_JIDS_EXTRA`, clicar em **Deploy** e mandar o comando de novo.
+   A linha sai uma vez por conversa a cada reinício e também aparece para conversas `@lid` com
+   clientes em que o Thiago escreveu: use a que surgiu logo depois da mensagem dele para si mesmo.
 
 ## Atualizar depois
 

@@ -56,6 +56,25 @@ describe('processarEvento e a conversa do dono', () => {
     expect(enfileirar).not.toHaveBeenCalled();
   });
 
+  it('mensagem minha numa conversa @lid desconhecida avisa no log uma vez por JID', async () => {
+    const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const entrada = { jids: [DONO, '111@lid'], enfileirar: vi.fn(async (_id: number) => {}) };
+      await processarEvento(db, await evento('222@lid', 'l1', 'ok 12', true), undefined, entrada);
+      await processarEvento(db, await evento('222@lid', 'l2', 'ok 13', true), undefined, entrada);
+      await processarEvento(db, await evento('111@lid', 'l3', 'ok 14', true), undefined, entrada); // extra do dono
+      await processarEvento(db, await evento('333@lid', 'l4', 'oi', false), undefined, entrada); // não é minha
+      await processarEvento(db, await evento('444@lid', 'l5', 'oi', true), undefined, undefined); // recurso desligado
+      expect(aviso).toHaveBeenCalledTimes(1);
+      expect(aviso).toHaveBeenCalledWith(
+        'mensagem sua numa conversa @lid não reconhecida: 222@lid — se for a conversa com você mesmo, ponha em DONO_JIDS_EXTRA',
+      );
+      expect(entrada.enfileirar).toHaveBeenCalledTimes(1); // só a do 111@lid
+    } finally {
+      aviso.mockRestore();
+    }
+  });
+
   it('marcarConversasDeComando cria ou converte a conversa e é repetível', async () => {
     await db.query(`INSERT INTO conversas (jid, tipo) VALUES ($1, 'individual')`, [DONO]);
     await marcarConversasDeComando(db, [DONO, '999@lid']);
