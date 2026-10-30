@@ -147,7 +147,10 @@ arquivo aparecer na pasta do Drive.
    **Conferir no celular se essa mensagem notifica.** Mensagem enviada por aparelho conectado
    para a própria conversa pode não gerar notificação. Se não notificar, anotar na Bíblia
    (pendências) e discutir um número próprio para a Ana.
-4. Responder `ok <N>`: a resposta sai na conversa de teste e o cartão vai para **Concluído**.
+4. Responder `ok <N>`: a resposta sai na conversa de teste e o cartão vai para a etapa que a
+   Ana sugeriu no pacote: **Concluído** quando a sugestão é concluir, **Aguardando terceiro**
+   quando é aguardar retorno, **Comigo** quando fica com você, **Agendado** quando é agendar e
+   já há data (sem data, a Ana pede: `<N> agenda quinta 15h`). Sem sugestão, fica onde está.
 5. Testar `<N> muda: ...` (nova versão e pedido de confirmação) e um texto livre com "sim".
 6. Se os comandos não forem reconhecidos (o Thiago manda `ok <N>` e nada acontece): logo depois
    da mensagem dele, procurar nos logs do `app` a linha

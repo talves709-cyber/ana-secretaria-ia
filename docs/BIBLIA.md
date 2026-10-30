@@ -92,8 +92,11 @@ Migração `003_demandas.sql`: `clientes`, `cliente_contatos`, `demandas` (etapa
 prioridade), `demanda_itens`, `demanda_etapas` (histórico de mudanças e quem fez), `rascunhos`,
 `aprovacoes`, `envios`, `bases_conhecimento` (uma por empresa), `exemplos_estilo`,
 `confirmacoes` (comandos que esperam o "sim"), `uso_ia` (custo por chamada) e `avisos`
-(pedidos já avisados ao Thiago, base do pacote e do silêncio). A tabela `conversas` ganhou um
-novo valor de modo.
+(só a chave do aviso de limite de IA, para sair uma vez por mês). O pacote de pedidos usa
+`demandas.avisada_em` (vazio = ainda não avisada ao Thiago). `rascunhos.mostrado_em` guarda
+quando o texto inteiro foi mostrado a ele. Ao rodar, a `003` marca todas as mensagens que já
+existiam como vistas em `demanda_itens` (o especialista não reanalisa o histórico). A tabela
+`conversas` ganhou um novo valor de modo.
 
 Planejado: `contas_canal`, `emails`, `eventos_agenda`, `rotinas`. Detalhes na especificação, seção 4.
 
@@ -105,7 +108,7 @@ Ficha do cliente com demandas dentro. Etapas da demanda:
 
 | Comando do dono | Efeito |
 |---|---|
-| `ok 14` | envia a resposta aprovada → Concluído |
+| `ok 14` | envia a resposta aprovada e aplica a etapa sugerida (concluir → Concluído, aguardar → Aguardando terceiro, comigo → Comigo, agendar → Agendado se houver data) |
 | `14 agenda quinta 15h` | evento na agenda da empresa + lembrete → Agendado |
 | `14 aguardar` | Aguardando terceiro (volta a Comigo se o cliente responder) |
 | `14 muda: …` | nova versão da resposta, pede confirmação |
@@ -116,6 +119,21 @@ na mensagem ("não" ou "cancela" desfaz). Hoje `agenda` só move a etapa e guard
 evento na agenda da empresa e o lembrete chegam na Parte 2. Aprovação vale 24 h, para um
 rascunho (hash) e um destino, e cai se o cliente escrever depois do rascunho.
 
+**Só sai o que o Thiago viu inteiro.** O pacote leva a resposta inteira e marca
+`mostrado_em`; a resposta do `muda` e a confirmação de texto livre de um aprovar também. Se o
+especialista grava uma resposta nova numa demanda já avisada, ele zera `avisada_em` e o próximo
+ciclo reavisa a demanda, marcada `(novidade)` quando não está em Novo (o ciclo pega toda demanda
+aberta com `avisada_em` vazio). `ok 14` numa versão nunca mostrada não envia: a Ana responde
+com o texto novo e pede outro `ok 14`. No painel, o Aprovar leva a versão exibida; se a resposta
+mudou desde que a página abriu, a ação é recusada.
+
+**Comandos que não valem:** mensagem encaminhada (`isForwarded` ou `forwardingScore`) nunca é
+comando; comando que chega mais de 10 minutos depois de enviado (fila parada, reconexão) é
+ignorado com aviso da hora, para o Thiago mandar de novo se ainda vale.
+
+**Repetir um envio:** depois de falha certa, novo `ok 14` reabre e envia; com envio incerto em
+aberto (pode ter saído), a Ana pede para conferir no WhatsApp e, para reenviar, usar `14 muda: ...`.
+
 **Painel** (todas as rotas pedem login): `/painel` (resumo e caixa de revisão),
 `/painel/pipeline` (quadro por etapa, filtros, botões de ação em cada cartão),
 `/painel/clientes/:id` (ficha com as demandas), `/painel/bases` (texto da base de
@@ -123,7 +141,9 @@ conhecimento de cada empresa), `/conexao` (QR Code e totais).
 
 **Filas (BullMQ):** `eventos`, `classificar` (janela de 45 s por conversa), `especialista`,
 `comandos` e `ana` (ciclo repetido a cada 5 minutos). As filas de comandos e da Ana só sobem
-se `DONO_WHATSAPP` estiver preenchido.
+se `DONO_WHATSAPP` estiver preenchido; sem ele, o agendador do ciclo é removido do Redis.
+Mensagem do Thiago numa conversa `@lid` desconhecida gera, uma vez por conversa, um aviso no
+log com o identificador para pôr em `DONO_JIDS_EXTRA`.
 
 ## 7. Regras da IA
 
@@ -134,6 +154,10 @@ se `DONO_WHATSAPP` estiver preenchido.
   estruturados (validados com zod); nunca executa nada.
 - **Ana:** organiza, agrupa pedidos (até ~5 por mensagem), respeita o silêncio (19h–8h, fins de
   semana, feriados), exceto urgente.
+- **Teto mensal de IA** (`IA_LIMITE_MENSAL_USD`): a 80% a Ana avisa; a 100% pausam até o mês
+  seguinte a análise do especialista e a interpretação de texto livre; a triagem e os comandos
+  curtos continuam. O custo usa o preço do modelo pelo prefixo do id; se o modelo devolvido não
+  tiver preço, vale o configurado.
 - **Aprendizado de estilo:** cada resposta aprovada ou corrigida vira exemplo por empresa. A
   conversa do dono consigo mesmo nunca entra (é o canal de comando).
 
@@ -157,7 +181,7 @@ Variáveis novas das Partes 0 e 1:
 | `CLAUDE_MODELO_ESPECIALISTA` | modelo do agente especialista (padrão `claude-opus-5-5`) |
 | `CLAUDE_ESFORCO_ESPECIALISTA` | esforço do especialista (padrão `medium`) |
 | `IA_LIMITE_MENSAL_USD` | teto mensal de gasto com IA em US$; aviso a 80% |
-| `SILENCIO_INICIO`, `SILENCIO_FIM` | hora cheia em que o silêncio começa (19) e termina (8), fuso America/Sao_Paulo |
+| `SILENCIO_INICIO`, `SILENCIO_FIM` | hora cheia em que o silêncio começa (19) e termina (8), fuso America/Sao_Paulo; precisam ser diferentes, e a janela pode ou não virar a meia-noite |
 | `BACKUP_DESTINO` | destino do backup no formato `remote:pasta` (`gdrive:ana-backups`) |
 | `RCLONE_CONFIG_GDRIVE_*` | configuração do rclone para o Google Drive (`TYPE`, `SCOPE`, `TOKEN`; `CLIENT_ID` e `CLIENT_SECRET` opcionais) |
 
@@ -211,3 +235,4 @@ para a Ana na VPS.
 | 2026-10-26 | `/painel` com resumo e caixa de revisão; modelo padrão Haiku. |
 | 2026-10-27 | Especificação da secretária executiva multiagente (Partes 0–6) e esta Bíblia. |
 | 2026-10-30 | Partes 0 e 1 no código: login do painel, backup no Drive, demandas e CRM, especialista, custo de IA, comandos pelo WhatsApp, Executor, pacotes e silêncio, painel do pipeline. Falta a primeira subida e o teste de fumaça. |
+| 2026-10-30 | Correções da revisão final: só envia a versão mostrada (`mostrado_em`), reaviso de novidade, resposta inteira no pacote, histórico antigo marcado como visto, comandos encaminhados ou antigos ignorados, reenvio depois de falha, aviso de `@lid`. |
