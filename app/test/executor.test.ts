@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../src/db.js';
-import { criarDemanda, garantirClienteDaConversa, salvarRascunho } from '../src/demandas.js';
+import { createHash } from 'node:crypto';
+import { criarDemanda, hashRascunho, garantirClienteDaConversa, salvarRascunho } from '../src/demandas.js';
 import { enviarAprovado, type CanalWhatsApp } from '../src/executor.js';
 import { ErroEnvioIncerto, Evolution } from '../src/evolution.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
@@ -65,6 +66,12 @@ async function cenario(texto = 'Olá, tudo certo.') {
 async function envios() {
   return (await db.query(`SELECT * FROM envios ORDER BY id`)).rows;
 }
+
+describe('hashRascunho', () => {
+  it('fixa a fórmula sha256 de destino, quebra de linha e texto', () => {
+    expect(hashRascunho('destino-a', 'Olá')).toBe(createHash('sha256').update('destino-a\nOlá').digest('hex'));
+  });
+});
 
 describe('enviarAprovado', () => {
   it('envia o texto aprovado para o JID da conversa e registra', async () => {
