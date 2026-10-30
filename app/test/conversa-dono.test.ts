@@ -40,6 +40,7 @@ function msg(extra: Partial<MensagemNormalizada> = {}): MensagemNormalizada {
     tipo: 'conversation',
     texto: 'ok 12',
     recebidaEm: new Date(),
+    encaminhada: false,
     ...extra,
   };
 }
@@ -52,6 +53,10 @@ describe('reconhecimento da mensagem do dono', () => {
 
   it('aceita mensagem dele na própria conversa', () => {
     expect(ehComandoDoDono(msg(), [JID])).toBe(true);
+  });
+
+  it('mensagem encaminhada nunca é comando', () => {
+    expect(ehComandoDoDono(msg({ encaminhada: true }), [JID])).toBe(false);
   });
 
   it('ignora mensagem que começa com "Ana:"', () => {
@@ -94,6 +99,22 @@ describe('tratarMensagemDoDono', () => {
     } satisfies DepsConversaDono;
     return { d, respostas };
   }
+
+  it('comando com mais de 10 minutos não é executado e a Ana avisa a hora', async () => {
+    const { d, respostas } = criar([{ tipo: 'aprovar', numero: 7 }]);
+    const agora = new Date('2026-10-27T15:00:00Z');
+    const dd = { ...d, agora: () => agora };
+    await tratarMensagemDoDono(dd, 'ok 12', new Date('2026-10-27T14:49:00Z')); // 11:49 em São Paulo
+    await tratarMensagemDoDono(dd, 'manda a da proforma', new Date('2026-10-27T14:40:00Z'));
+    expect(d.aplicar).not.toHaveBeenCalled();
+    expect(d.interpretarLivre).not.toHaveBeenCalled();
+    expect(respostas).toEqual([
+      'Ana: comando antigo ignorado (enviado às 11:49). Mande de novo se ainda vale.',
+      'Ana: comando antigo ignorado (enviado às 11:40). Mande de novo se ainda vale.',
+    ]);
+    await tratarMensagemDoDono(dd, 'ok 12', new Date('2026-10-27T14:51:00Z'));
+    expect(d.aplicar).toHaveBeenCalledTimes(1);
+  });
 
   it('comando curto é aplicado na hora', async () => {
     const { d, respostas } = criar();

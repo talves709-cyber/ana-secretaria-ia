@@ -90,9 +90,11 @@ export async function marcarConversasDeComando(db: Db, jids: string[]): Promise<
   }
 }
 
-export async function textoDaMensagem(db: Db, id: number): Promise<string | null> {
-  const r = await db.query<{ texto: string | null }>('SELECT texto FROM mensagens WHERE id = $1', [id]);
-  return r.rows[0]?.texto ?? null;
+/** Texto e hora (do WhatsApp) da mensagem; null se não existe ou não tem texto. */
+export async function textoDaMensagem(db: Db, id: number): Promise<{ texto: string; recebidaEm: Date } | null> {
+  const r = await db.query<{ texto: string | null; recebida_em: Date }>('SELECT texto, recebida_em FROM mensagens WHERE id = $1', [id]);
+  const m = r.rows[0];
+  return m?.texto ? { texto: m.texto, recebidaEm: m.recebida_em } : null;
 }
 
 export async function gravarEstadoConexao(db: Db, instancia: string, estado: string) {

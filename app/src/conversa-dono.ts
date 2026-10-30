@@ -12,6 +12,10 @@ import type { MensagemNormalizada } from './normalizar.js';
 import type { UsoTokens } from './uso-ia.js';
 
 const VALIDADE_CONFIRMACAO_MIN = 30;
+/** Comando que chega mais velho que isso (fila parada, reconexão) não é executado. */
+const VALIDADE_COMANDO_MS = 10 * 60_000;
+
+const horaSP = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
 
 /** JIDs em que o Thiago fala com a Ana: o número do dono e os extras (ex.: formato @lid). [] = recurso desligado. */
 export function jidsDoDono(config: Pick<Config, 'DONO_WHATSAPP' | 'DONO_JIDS_EXTRA'>): string[] {
@@ -19,9 +23,11 @@ export function jidsDoDono(config: Pick<Config, 'DONO_WHATSAPP' | 'DONO_JIDS_EXT
   return [`${config.DONO_WHATSAPP}@s.whatsapp.net`, ...config.DONO_JIDS_EXTRA];
 }
 
-/** Mensagem escrita por ele numa conversa dele, que não é uma resposta da própria Ana ("Ana: ..."). */
+/** Mensagem escrita por ele numa conversa dele, que não é uma resposta da própria Ana ("Ana: ...") nem encaminhada. */
 export function ehComandoDoDono(m: MensagemNormalizada, jids: string[]): boolean {
-  return m.deMim && jids.includes(m.conversaJid) && Boolean(m.texto) && !m.texto!.trimStart().startsWith('Ana:');
+  return (
+    m.deMim && !m.encaminhada && jids.includes(m.conversaJid) && Boolean(m.texto) && !m.texto!.trimStart().startsWith('Ana:')
+  );
 }
 
 /** Fila de comandos, só o que a entrada precisa (facilita o teste). */
@@ -57,6 +63,7 @@ export interface DepsConversaDono {
   /** Texto inteiro da resposta atual da demanda, já marcada como mostrada; null sem resposta. */
   mostrarResposta(numero: number): Promise<string | null>;
   responder(texto: string): Promise<void>;
+  agora?: () => Date;
 }
 
 const FORMAS_ACEITAS = `Ana: Não entendi. Formas aceitas:
@@ -116,7 +123,12 @@ function misturaConfirmacao(texto: string): boolean {
   return linhas.filter((l) => l !== '').length > 1 && linhas.some((l) => /^(?:sim|confirmo|nao|cancela)$/.test(l));
 }
 
-export async function tratarMensagemDoDono(d: DepsConversaDono, texto: string): Promise<void> {
+/** `recebidaEm`: hora da mensagem no WhatsApp; comando com mais de 10 minutos não é executado. */
+export async function tratarMensagemDoDono(d: DepsConversaDono, texto: string, recebidaEm?: Date): Promise<void> {
+  const agora = (d.agora ?? (() => new Date()))();
+  if (recebidaEm && agora.getTime() - recebidaEm.getTime() > VALIDADE_COMANDO_MS) {
+    return d.responder(`Ana: comando antigo ignorado (enviado às ${horaSP.format(recebidaEm)}). Mande de novo se ainda vale.`);
+  }
   const curtos = interpretarComandos(texto);
 
   if (curtos && curtos.length === 1 && (curtos[0]!.tipo === 'confirmar' || curtos[0]!.tipo === 'cancelar')) {

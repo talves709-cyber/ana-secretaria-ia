@@ -164,8 +164,8 @@ const canalWhatsApp: CanalWhatsApp = {
 
 const workerComandos = comandosLigados
   ? criarWorker<JobComando>(FILA_COMANDOS, config.REDIS_URL, 1, async (job) => {
-      const texto = await textoDaMensagem(db, job.data.mensagemId);
-      if (!texto) return;
+      const msg = await textoDaMensagem(db, job.data.mensagemId);
+      if (!msg) return;
       const acoes = { db, enviarAprovado: (id: number) => enviarAprovado(db, canalWhatsApp, id), agora: () => new Date() };
       await tratarMensagemDoDono(
         {
@@ -184,7 +184,8 @@ const workerComandos = comandosLigados
           ...confirmacoesDoBanco(db),
           responder: responderAoDono,
         },
-        texto,
+        msg.texto,
+        msg.recebidaEm,
       );
     })
   : null;
