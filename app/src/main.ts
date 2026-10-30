@@ -1,6 +1,9 @@
 import { lerConfig } from './config.js';
 import { criarDb } from './db.js';
 import { Evolution } from './evolution.js';
+import { aplicarComando } from './acoes.js';
+import { confirmacoesDoBanco, criarInterpretarLivre, demandasParaInterprete, jidsDoDono, tratarMensagemDoDono } from './conversa-dono.js';
+import { enviarAprovado, type CanalWhatsApp } from './executor.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonomia } from './classificacao-dados.js';
 import { classificarConversa, perguntarIA } from './classificador.js';
@@ -13,16 +16,18 @@ import {
   criarFila,
   criarWorker,
   FILA_CLASSIFICAR,
+  FILA_COMANDOS,
   FILA_ESPECIALISTA,
   FILA_EVENTOS,
   type JobClassificar,
+  type JobComando,
   type JobEspecialista,
   type JobEvento,
 } from './fila.js';
 import { migrar } from './migrate.js';
 import { registrarPainel } from './painel.js';
 import { processarEvento } from './processar.js';
-import { gravarEvento, resumoDiario, resumoMensagens } from './repositorio.js';
+import { gravarEvento, marcarConversasDeComando, resumoDiario, resumoMensagens, textoDaMensagem } from './repositorio.js';
 import { criarServidor } from './webhook.js';
 
 const config = lerConfig();
@@ -30,6 +35,13 @@ const db = criarDb(config.DATABASE_URL);
 
 const novas = await migrar(db);
 if (novas.length) console.log(`Migrações aplicadas: ${novas.join(', ')}`);
+
+const evolution = new Evolution(config.EVOLUTION_URL, config.EVOLUTION_API_KEY);
+
+// Comandos pelo WhatsApp: ligados só com DONO_WHATSAPP.
+const donoJids = jidsDoDono(config);
+const comandosLigados = donoJids.length > 0;
+const filaComandos = criarFila<JobComando>(FILA_COMANDOS, config.REDIS_URL);
 
 const filaClassificar = criarFila<JobClassificar>(FILA_CLASSIFICAR, config.REDIS_URL);
 const filaEspecialista = criarFila<JobEspecialista>(FILA_ESPECIALISTA, config.REDIS_URL);
@@ -123,6 +135,46 @@ workerEspecialista?.on('failed', (job, erro) =>
   console.error(`Especialista na conversa ${job?.data.conversaId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
 );
 
+// Adaptador do Executor: ErroEnvioIncerto sobe sem embrulho (o Executor o trata como "pode ter saído").
+const canalWhatsApp: CanalWhatsApp = {
+  enviarTexto: (jid, texto) => evolution.enviarTexto(config.EVOLUTION_INSTANCE, jid, texto),
+};
+
+const workerComandos = comandosLigados
+  ? criarWorker<JobComando>(FILA_COMANDOS, config.REDIS_URL, 1, async (job) => {
+      const texto = await textoDaMensagem(db, job.data.mensagemId);
+      if (!texto) return;
+      const acoes = { db, enviarAprovado: (id: number) => enviarAprovado(db, canalWhatsApp, id), agora: () => new Date() };
+      await tratarMensagemDoDono(
+        {
+          aplicar: (c) => aplicarComando(acoes, c as Parameters<typeof aplicarComando>[1], 'whatsapp'),
+          interpretarLivre: anthropic
+            ? criarInterpretarLivre({
+                client: anthropic,
+                modelo: config.CLAUDE_MODELO,
+                esforco: config.CLAUDE_ESFORCO,
+                demandas: () => demandasParaInterprete(db),
+                registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'interprete', modelo, uso),
+              })
+            : async () => null,
+          ...confirmacoesDoBanco(db),
+          // Mensagem para o próprio Thiago: não passa pelo Executor (ele é só para terceiros).
+          responder: async (t) => {
+            await evolution.enviarTexto(config.EVOLUTION_INSTANCE, donoJids[0]!, t);
+          },
+        },
+        texto,
+      );
+    })
+  : null;
+workerComandos?.on('failed', (job, erro) =>
+  console.error(`Comando da mensagem ${job?.data.mensagemId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
+);
+if (comandosLigados) {
+  await marcarConversasDeComando(db, donoJids);
+  console.log('Comandos pelo WhatsApp ligados');
+}
+
 const servidor = criarServidor({
   token: config.WEBHOOK_TOKEN,
   gravarEvento: (instancia, evento, payload) => gravarEvento(db, instancia, evento, payload),
@@ -131,7 +183,6 @@ const servidor = criarServidor({
   },
 });
 
-const evolution = new Evolution(config.EVOLUTION_URL, config.EVOLUTION_API_KEY);
 const garantirInstancia = () =>
   evolution.garantirInstancia(config.EVOLUTION_INSTANCE, config.WEBHOOK_URL, config.WEBHOOK_TOKEN);
 

@@ -28,6 +28,17 @@ const esquema = z.object({
   CLAUDE_ESFORCO_ESPECIALISTA: z.enum(['low', 'medium', 'high']).default('medium'),
   // Teto de gasto com IA por mês, em US$ (todos os agentes somados).
   IA_LIMITE_MENSAL_USD: z.coerce.number().positive().default(50),
+  // Número do Thiago (só dígitos, com DDI). Vazio = comandos pelo WhatsApp desligados.
+  DONO_WHATSAPP: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined)
+    .refine((v) => v === undefined || /^d{8,15}$/.test(v), 'use só dígitos, com DDI'),
+  // JIDs extras do dono (ex.: formato @lid), separados por vírgula.
+  DONO_JIDS_EXTRA: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? '').split(',').map((j) => j.trim()).filter(Boolean)),
   CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
 });
 

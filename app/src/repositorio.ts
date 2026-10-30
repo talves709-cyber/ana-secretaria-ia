@@ -79,6 +79,22 @@ export async function gravarMensagem(
   return r.rows[0] ? { id: Number(r.rows[0].id), conversaId: conversa.id, modo: conversa.modo } : null;
 }
 
+/** Põe as conversas do dono em modo 'comando' (não são classificadas). Cria a conversa se não existir. */
+export async function marcarConversasDeComando(db: Db, jids: string[]): Promise<void> {
+  for (const jid of jids) {
+    await db.query(
+      `INSERT INTO conversas (jid, tipo, modo) VALUES ($1, 'individual', 'comando')
+       ON CONFLICT (jid) DO UPDATE SET modo = 'comando'`,
+      [jid],
+    );
+  }
+}
+
+export async function textoDaMensagem(db: Db, id: number): Promise<string | null> {
+  const r = await db.query<{ texto: string | null }>('SELECT texto FROM mensagens WHERE id = $1', [id]);
+  return r.rows[0]?.texto ?? null;
+}
+
 export async function gravarEstadoConexao(db: Db, instancia: string, estado: string) {
   await db.query(
     `INSERT INTO estado_conexao (instancia, estado) VALUES ($1, $2)
