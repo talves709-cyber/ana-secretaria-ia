@@ -8,6 +8,8 @@ export type Comando =
   | { tipo: 'confirmar' }
   | { tipo: 'cancelar' };
 
+export type ComandoDeDemanda = Exclude<Comando, { tipo: 'confirmar' | 'cancelar' }>;
+
 /** Minúsculas e sem acentos, mantendo o comprimento (para fatiar o original pelos mesmos índices). */
 function normalizar(s: string): string {
   return Array.from(s.toLowerCase())

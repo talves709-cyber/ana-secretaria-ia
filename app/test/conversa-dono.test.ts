@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../src/db.js';
-import type { Comando } from '../src/comandos.js';
+import type { ComandoDeDemanda as Comando } from '../src/comandos.js';
 import {
   confirmacoesDoBanco,
+  criarInterpretarLivre,
+  entradaDeComandos,
   ehComandoDoDono,
   demandasParaInterprete,
   jidsDoDono,
@@ -72,7 +74,11 @@ describe('tratarMensagemDoDono', () => {
     let pendente: { id: number; comandos: Comando[] } | null = null;
     const respostas: string[] = [];
     const d = {
-      aplicar: vi.fn(async (c: Comando) => (c.tipo === 'aprovar' ? `#${c.numero} enviada.` : `#${(c as any).numero} ok.`)),
+      aplicar: vi.fn(async (c: Comando) => {
+        if (c.numero === 99) throw new Error('banco fora do ar');
+        return c.tipo === 'aprovar' ? `#${c.numero} enviada.` : `#${c.numero} ok.`;
+      }),
+      demandasAbertas: vi.fn(async () => [{ numero: 7, empresa: 'Acme', titulo: 'Proforma de abril' }]),
       interpretarLivre: vi.fn(async (_t: string) => livre),
       confirmacaoPendente: vi.fn(async () => pendente),
       salvarConfirmacao: vi.fn(async (comandos: Comando[], _texto: string) => {
@@ -114,6 +120,36 @@ describe('tratarMensagemDoDono', () => {
     expect(d.fecharConfirmacao).toHaveBeenCalledWith(1, 'cancelada');
     expect(d.aplicar).not.toHaveBeenCalled();
     expect(respostas[1]).toMatch(/^Ana: Cancelado/);
+  });
+
+  it('a confirmação mostra empresa e título da demanda', async () => {
+    const { d, respostas } = criar([{ tipo: 'aprovar', numero: 7 }, { tipo: 'concluir', numero: 8 }]);
+    await tratarMensagemDoDono(d, 'manda a da proforma e fecha a outra');
+    expect(respostas[0]).toContain('#7 (Acme - Proforma de abril)');
+    expect(respostas[0]).toContain('concluir #8'); // demanda fora da lista: só o número
+  });
+
+  it('"sim" misturado com outros comandos pede o sim sozinho e não aplica nada', async () => {
+    for (const texto of ['sim\nok 12', 'ok 12\nsim', 'não\n12 concluir']) {
+      const { d, respostas } = criar([{ tipo: 'concluir', numero: 3 }]);
+      await tratarMensagemDoDono(d, texto);
+      expect(d.aplicar).not.toHaveBeenCalled();
+      expect(d.interpretarLivre).not.toHaveBeenCalled();
+      expect(respostas).toEqual(['Ana: Mande o "sim" ou o "não" sozinho, numa mensagem só.']);
+    }
+  });
+
+  it('falha de um comando vira linha na resposta e os outros seguem', async () => {
+    const { d, respostas } = criar();
+    await expect(tratarMensagemDoDono(d, 'ok 99\n13 concluir')).resolves.toBeUndefined();
+    expect(respostas).toEqual(['Ana: #99 falhou: banco fora do ar\n#13 ok.']);
+  });
+
+  it('falha ao aplicar texto livre confirmado também é respondida', async () => {
+    const { d, respostas } = criar([{ tipo: 'concluir', numero: 99 }]);
+    await tratarMensagemDoDono(d, 'fecha a grande');
+    await tratarMensagemDoDono(d, 'sim');
+    expect(respostas[1]).toBe('Ana: #99 falhou: banco fora do ar');
   });
 
   it('sim sem nada pendente avisa', async () => {
@@ -174,3 +210,51 @@ describe('pedido ao interprete', () => {
   });
 });
 
+
+describe('entrada de comandos no processarEvento', () => {
+  it('sem JIDs ou sem fila o recurso fica desligado', () => {
+    expect(entradaDeComandos([], { add: vi.fn() })).toBeUndefined();
+    expect(entradaDeComandos([JID], null)).toBeUndefined();
+  });
+
+  it('enfileira a mensagem do dono com jobId estável', async () => {
+    const add = vi.fn(async () => ({}));
+    await entradaDeComandos([JID], { add })!.enfileirar(42);
+    expect(add).toHaveBeenCalledWith('comando', { mensagemId: 42 }, { jobId: 'cmd-42' });
+  });
+});
+
+describe('criarInterpretarLivre e o teto mensal', () => {
+  function opcoes(podeGastar: boolean) {
+    const parse = vi.fn(async () => ({
+      stop_reason: 'end_turn',
+      model: 'm',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      parsed_output: { comandos: [{ tipo: 'concluir', numero: 1 }] },
+    }));
+    const registrarUso = vi.fn(async () => {});
+    const fn = criarInterpretarLivre({
+      client: { beta: { messages: { parse } } } as any,
+      modelo: 'm',
+      esforco: 'low',
+      demandas: async () => [],
+      registrarUso,
+      podeGastar: async () => podeGastar,
+    });
+    return { fn, parse, registrarUso };
+  }
+
+  it('acima do teto devolve null sem chamar a IA', async () => {
+    const { fn, parse, registrarUso } = opcoes(false);
+    expect(await fn('fecha a 1')).toBeNull();
+    expect(parse).not.toHaveBeenCalled();
+    expect(registrarUso).not.toHaveBeenCalled();
+  });
+
+  it('dentro do teto chama a IA e registra o uso', async () => {
+    const { fn, parse, registrarUso } = opcoes(true);
+    expect(await fn('fecha a 1')).toEqual([{ tipo: 'concluir', numero: 1 }]);
+    expect(parse).toHaveBeenCalledTimes(1);
+    expect(registrarUso).toHaveBeenCalledTimes(1);
+  });
+});

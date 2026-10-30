@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../src/db.js';
+import { entradaDeComandos } from '../src/conversa-dono.js';
 import { processarEvento } from '../src/processar.js';
 import { gravarEvento, marcarConversasDeComando } from '../src/repositorio.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
@@ -61,5 +62,15 @@ describe('processarEvento e a conversa do dono', () => {
     await marcarConversasDeComando(db, [DONO, '999@lid']);
     const r = await db.query(`SELECT jid, modo FROM conversas ORDER BY jid`);
     expect(r.rows.map((x) => x.modo)).toEqual(['comando', 'comando']);
+  });
+});
+
+describe('ligação com a fila de comandos', () => {
+  it('mensagem do dono chega à fila pela entrada montada como no main', async () => {
+    await marcarConversasDeComando(db, [DONO]);
+    const add = vi.fn(async () => ({}));
+    await processarEvento(db, await evento(DONO, 'f1', 'ok 12', true), undefined, entradaDeComandos([DONO], { add }));
+    const id = (await db.query(`SELECT id FROM mensagens WHERE whatsapp_msg_id = 'f1'`)).rows[0].id;
+    expect(add).toHaveBeenCalledWith('comando', { mensagemId: Number(id) }, { jobId: `cmd-${id}` });
   });
 });

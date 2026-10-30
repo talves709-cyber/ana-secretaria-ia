@@ -33,7 +33,7 @@ const esquema = z.object({
     .string()
     .optional()
     .transform((v) => v?.trim() || undefined)
-    .refine((v) => v === undefined || /^d{8,15}$/.test(v), 'use só dígitos, com DDI'),
+    .refine((v) => v === undefined || /^\d{8,15}$/.test(v), 'use só dígitos, com DDI'),
   // JIDs extras do dono (ex.: formato @lid), separados por vírgula.
   DONO_JIDS_EXTRA: z
     .string()

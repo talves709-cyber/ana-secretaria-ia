@@ -2,7 +2,7 @@ import { lerConfig } from './config.js';
 import { criarDb } from './db.js';
 import { Evolution } from './evolution.js';
 import { aplicarComando } from './acoes.js';
-import { confirmacoesDoBanco, criarInterpretarLivre, demandasParaInterprete, jidsDoDono, tratarMensagemDoDono } from './conversa-dono.js';
+import { confirmacoesDoBanco, criarInterpretarLivre, demandasParaInterprete, entradaDeComandos, jidsDoDono, tratarMensagemDoDono } from './conversa-dono.js';
 import { enviarAprovado, type CanalWhatsApp } from './executor.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { carregarConversa, carregarTaxonomia, gravarClassificacoes, type Taxonomia } from './classificacao-dados.js';
@@ -38,10 +38,14 @@ if (novas.length) console.log(`Migrações aplicadas: ${novas.join(', ')}`);
 
 const evolution = new Evolution(config.EVOLUTION_URL, config.EVOLUTION_API_KEY);
 
-// Comandos pelo WhatsApp: ligados só com DONO_WHATSAPP.
+// Comandos pelo WhatsApp: ligados só com DONO_WHATSAPP. A conversa do dono é marcada antes de qualquer worker.
 const donoJids = jidsDoDono(config);
 const comandosLigados = donoJids.length > 0;
-const filaComandos = criarFila<JobComando>(FILA_COMANDOS, config.REDIS_URL);
+if (comandosLigados) {
+  await marcarConversasDeComando(db, donoJids);
+  console.log('Comandos pelo WhatsApp ligados');
+}
+const filaComandos = comandosLigados ? criarFila<JobComando>(FILA_COMANDOS, config.REDIS_URL) : null;
 
 const filaClassificar = criarFila<JobClassificar>(FILA_CLASSIFICAR, config.REDIS_URL);
 const filaEspecialista = criarFila<JobEspecialista>(FILA_ESPECIALISTA, config.REDIS_URL);
@@ -58,6 +62,7 @@ const worker = criarWorker<JobEvento>(FILA_EVENTOS, config.REDIS_URL, config.WOR
     db,
     job.data.eventoId,
     classificacaoLigada ? (conversaId) => agendarClassificacao(filaClassificar, conversaId) : undefined,
+    entradaDeComandos(donoJids, filaComandos),
   ),
 );
 worker.on('failed', (job, erro) =>
@@ -147,7 +152,8 @@ const workerComandos = comandosLigados
       const acoes = { db, enviarAprovado: (id: number) => enviarAprovado(db, canalWhatsApp, id), agora: () => new Date() };
       await tratarMensagemDoDono(
         {
-          aplicar: (c) => aplicarComando(acoes, c as Parameters<typeof aplicarComando>[1], 'whatsapp'),
+          aplicar: (c) => aplicarComando(acoes, c, 'whatsapp'),
+          demandasAbertas: () => demandasParaInterprete(db),
           interpretarLivre: anthropic
             ? criarInterpretarLivre({
                 client: anthropic,
@@ -155,6 +161,7 @@ const workerComandos = comandosLigados
                 esforco: config.CLAUDE_ESFORCO,
                 demandas: () => demandasParaInterprete(db),
                 registrarUso: (modelo, uso) => registrarUsoSeguro(db, 'interprete', modelo, uso),
+                podeGastar: async () => situacaoLimite(await gastoDoMes(db), config.IA_LIMITE_MENSAL_USD) !== 'estourado',
               })
             : async () => null,
           ...confirmacoesDoBanco(db),
@@ -170,11 +177,6 @@ const workerComandos = comandosLigados
 workerComandos?.on('failed', (job, erro) =>
   console.error(`Comando da mensagem ${job?.data.mensagemId} falhou (tentativa ${job?.attemptsMade}): ${erro.message}`),
 );
-if (comandosLigados) {
-  await marcarConversasDeComando(db, donoJids);
-  console.log('Comandos pelo WhatsApp ligados');
-}
-
 const servidor = criarServidor({
   token: config.WEBHOOK_TOKEN,
   gravarEvento: (instancia, evento, payload) => gravarEvento(db, instancia, evento, payload),
@@ -207,9 +209,11 @@ async function encerrar() {
   await worker.close();
   await workerClassificar?.close();
   await workerEspecialista?.close();
+  await workerComandos?.close();
   await fila.close();
   await filaClassificar.close();
   await filaEspecialista.close();
+  await filaComandos?.close();
   await db.end();
   process.exit(0);
 }

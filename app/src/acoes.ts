@@ -1,7 +1,7 @@
 // Ações do Thiago sobre uma demanda. Caminho único: WhatsApp e painel chamam `aplicarComando`.
 import type { Db } from './db.js';
 import type { Comando } from './comandos.js';
-import { interpretarQuando } from './comandos.js';
+import { interpretarQuando, type ComandoDeDemanda } from './comandos.js';
 import type { ResultadoEnvio } from './executor.js';
 import {
   atualizarDemanda,
@@ -33,8 +33,6 @@ const ROTULO_ETAPA: Record<Etapa, string> = {
   agendado: 'agendada',
   concluido: 'concluída',
 };
-
-type ComandoDeDemanda = Exclude<Comando, { tipo: 'confirmar' | 'cancelar' }>;
 
 function formatarPrazo(d: Date, temHora: boolean): string {
   const tz = 'America/Sao_Paulo';
