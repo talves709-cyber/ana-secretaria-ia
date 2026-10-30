@@ -27,6 +27,8 @@ export function sessaoValida(token: string | undefined, segredo: string, agora: 
 
 /** Limite de tentativas de login por IP, em memória: `max` falhas dentro da janela bloqueiam o IP. */
 export class LimiteTentativas {
+  /** Teto de IPs guardados, para o Map não crescer sem limite. */
+  private static readonly MAX_IPS = 10_000;
   private falhas = new Map<string, number[]>();
 
   constructor(
@@ -41,12 +43,22 @@ export class LimiteTentativas {
     return lista;
   }
 
+  /** Remove IPs sem falhas na janela; se ainda estiver cheio, descarta o mais antigo. */
+  private varrer(agora: number): void {
+    for (const ip of [...this.falhas.keys()]) this.recentes(ip, agora);
+    if (this.falhas.size >= LimiteTentativas.MAX_IPS) {
+      const maisAntigo = this.falhas.keys().next().value;
+      if (maisAntigo !== undefined) this.falhas.delete(maisAntigo);
+    }
+  }
+
   bloqueado(ip: string, agora: number = Date.now()): boolean {
     return this.recentes(ip, agora).length >= this.max;
   }
 
   falhou(ip: string, agora: number = Date.now()): void {
     const lista = this.recentes(ip, agora);
+    if (!this.falhas.has(ip) && this.falhas.size >= LimiteTentativas.MAX_IPS) this.varrer(agora);
     lista.push(agora);
     this.falhas.set(ip, lista);
   }

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { lerConfig } from '../src/config.js';
 import type { ResumoDiario } from '../src/repositorio.js';
 import { paginaPainel, registrarPainel } from '../src/painel.js';
+import { criarServidor } from '../src/webhook.js';
 import { criarSessao } from '../src/sessao.js';
 
 const SENHA = 'senha-do-painel-123';
@@ -189,6 +190,45 @@ describe('login', () => {
     expect(r.statusCode).toBe(302);
     expect(r.headers.location).toBe('/entrar');
     expect(String(r.headers['set-cookie'])).toMatch(/ana_sessao=;/);
+  });
+});
+
+describe('limite por IP atrás do proxy', () => {
+  function montarComProxy() {
+    const app = criarServidor({ token: 'token-de-teste-123456', gravarEvento: async () => 1, enfileirar: async () => {} });
+    registrarPainel(app, {
+      senha: SENHA,
+      sessaoSegredo: SEGREDO,
+      estado: async () => 'open',
+      qrCode: async () => ({ base64: '', code: 'x' }),
+      resumo: async () => ({ total: 0, hoje: 0, ultimas: [] }),
+      resumoDiario: async () => resumoDiarioFake(),
+    });
+    return app;
+  }
+  const tentar = (app: ReturnType<typeof montarComProxy>, xff: string, senha: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/entrar',
+      headers: { ...FORM, 'x-forwarded-for': xff },
+      payload: `senha=${senha}`,
+    });
+
+  it('origens diferentes têm contadores separados', async () => {
+    const app = montarComProxy();
+    for (let i = 0; i < 5; i++) await tentar(app, '10.0.0.1', 'errada');
+    expect((await tentar(app, '10.0.0.1', 'errada')).statusCode).toBe(429);
+    expect((await tentar(app, '10.0.0.2', 'errada')).statusCode).toBe(401);
+    expect((await tentar(app, '10.0.0.2', SENHA)).statusCode).toBe(302);
+    expect((await tentar(app, '10.0.0.1', SENHA)).statusCode).toBe(429);
+  });
+
+  it('com dois IPs no X-Forwarded-For usa o último (o do proxy)', async () => {
+    const app = montarComProxy();
+    for (let i = 0; i < 5; i++) await tentar(app, `9.9.9.${i}, 10.0.0.1`, 'errada');
+    // mudar o primeiro IP (forjável) não escapa do bloqueio
+    expect((await tentar(app, '8.8.8.8, 10.0.0.1', 'errada')).statusCode).toBe(429);
+    expect((await tentar(app, '9.9.9.0, 10.0.0.3', 'errada')).statusCode).toBe(401);
   });
 });
 

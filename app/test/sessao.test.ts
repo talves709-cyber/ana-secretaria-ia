@@ -43,4 +43,11 @@ describe('LimiteTentativas', () => {
     l.limpar('1.1.1.1');
     expect(l.bloqueado('1.1.1.1', 4)).toBe(false);
   });
+
+  it('descarta IPs vencidos ao registrar falhas, sem crescer sem limite', () => {
+    const l = new LimiteTentativas();
+    for (let i = 0; i < 10_000; i++) l.falhou(`ip-${i}`, 0);
+    l.falhou('novo', 15 * 60_000 + 1);
+    expect((l as unknown as { falhas: Map<string, number[]> }).falhas.size).toBe(1);
+  });
 });

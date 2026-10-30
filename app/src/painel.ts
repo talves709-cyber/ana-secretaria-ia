@@ -107,9 +107,17 @@ function senhaConfere(recebida: string, senha: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Só aceita caminhos do próprio site: começa com "/" e não com "//" nem barra seguida de contrabarra (redirecionamento aberto). */
+/** Caminho do próprio site: allowlist de caracteres, sem "//" no início e sem %-sequências de controle ou contrabarra. */
+const DESTINO_PERMITIDO = /^\/[\w\-./%?=&~]*$/;
+const PERCENT_PERIGOSO = /%(?:[01][0-9a-f]|7f|5c)/i;
+
 function destinoSeguro(volta: unknown): string {
-  if (typeof volta !== 'string' || !volta.startsWith('/') || volta.startsWith('//') || volta.startsWith('/\\')) {
+  if (
+    typeof volta !== 'string' ||
+    !DESTINO_PERMITIDO.test(volta) ||
+    volta.startsWith('//') ||
+    PERCENT_PERIGOSO.test(volta)
+  ) {
     return '/painel';
   }
   return volta;
