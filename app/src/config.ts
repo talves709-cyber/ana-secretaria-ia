@@ -24,6 +24,8 @@ const esquema = z.object({
   ANTHROPIC_API_KEY: z.string().optional().transform((v) => v?.trim() || undefined),
   CLAUDE_MODELO: z.string().default('claude-haiku-5-5'),
   CLAUDE_ESFORCO: z.enum(['low', 'medium', 'high']).default('low'),
+  // Teto de gasto com IA por mês, em US$ (todos os agentes somados).
+  IA_LIMITE_MENSAL_USD: z.coerce.number().positive().default(50),
   CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
 });
 
