@@ -12,5 +12,10 @@ fi
 export -p > /etc/backup.env
 chmod 600 /etc/backup.env
 
+# Com argumentos (ex.: run --rm backup /backup.sh), executa o comando e sai
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 echo "Backup agendado (cron: 03:00 ${TZ:-UTC}). Destino: ${BACKUP_DESTINO:-<nao definido>}"
 exec cron -f

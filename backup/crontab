@@ -1,2 +1,4 @@
+# O cron usa /bin/sh (dash) por padrão; o /etc/backup.env vem de `export -p` do bash
+SHELL=/bin/bash
 # Todo dia às 03:00 (fuso do contêiner = TZ). A saída vai para os logs do serviço.
 0 3 * * * root . /etc/backup.env; /backup.sh >> /proc/1/fd/1 2>> /proc/1/fd/2
