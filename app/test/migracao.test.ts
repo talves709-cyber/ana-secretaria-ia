@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../src/db.js';
+import { carregarBloco } from '../src/especialista-dados.js';
 import { iniciarBanco, limparBanco } from './apoio/banco.js';
 
 let db: Db;
@@ -78,5 +80,32 @@ describe('migração 003', () => {
     expect(Number(novo.rows[0].id)).toBe(1);
     expect((await db.query(`SELECT count(*)::int n FROM empresas`)).rows[0].n).toBeGreaterThan(0);
     expect((await db.query(`SELECT count(*)::int n FROM bases_conhecimento`)).rows[0].n).toBeGreaterThan(0);
+  });
+
+  it('mensagem classificada que já existia antes da 003 conta como vista: o especialista não a analisa', async () => {
+    const conv = await db.query(`INSERT INTO conversas (jid, tipo, nome) VALUES ('h@s.whatsapp.net','individual','H') RETURNING id`);
+    const conversaId = Number(conv.rows[0].id);
+    const m = await db.query(
+      `INSERT INTO mensagens (conversa_id, whatsapp_msg_id, tipo, texto, de_mim, recebida_em)
+       VALUES ($1, 'antiga', 'conversation', 'pedido antigo', false, now()) RETURNING id`,
+      [conversaId],
+    );
+    await db.query(
+      `INSERT INTO classificacoes (mensagem_id, prioridade, resumo, acao_sugerida) VALUES ($1, 'media', 'r', 'responder')`,
+      [Number(m.rows[0].id)],
+    );
+    expect(await carregarBloco(db, conversaId)).not.toBeNull();
+
+    // O modelo de testes já migrou tudo: reaplica o mesmo comando da 003 sobre o histórico inserido acima.
+    const sql = readFileSync(new URL('../migrations/003_demandas.sql', import.meta.url), 'utf8');
+    const preenche = sql.split(/\r?\n/).find((l) => l.startsWith('INSERT INTO demanda_itens'));
+    expect(preenche).toBeDefined();
+    await db.query(preenche!);
+    // Rodar de novo não duplica nem falha.
+    await db.query(preenche!);
+
+    expect(await carregarBloco(db, conversaId)).toBeNull();
+    const itens = await db.query(`SELECT demanda_id FROM demanda_itens`);
+    expect(itens.rows).toEqual([{ demanda_id: null }]);
   });
 });

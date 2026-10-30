@@ -44,6 +44,9 @@ CREATE TABLE demanda_itens (
   criado_em   timestamptz NOT NULL DEFAULT now()
 );
 
+-- Tudo o que já existia antes desta migração conta como visto: o especialista não reanalisa o histórico.
+INSERT INTO demanda_itens (mensagem_id, demanda_id) SELECT id, NULL FROM mensagens ON CONFLICT DO NOTHING;
+
 CREATE TABLE demanda_etapas (
   id          bigserial PRIMARY KEY,
   demanda_id  bigint NOT NULL REFERENCES demandas(id),
