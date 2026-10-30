@@ -55,6 +55,47 @@ qualquer nome e a senha é a `PAINEL_SENHA`. Escaneie o QR Code em
 *WhatsApp > Aparelhos conectados > Conectar aparelho*. A página atualiza sozinha e mostra
 "WhatsApp conectado" quando terminar.
 
+## 6. Backup diário do banco (Google Drive)
+
+O serviço `backup` roda todo dia às **03:00 (America/Sao_Paulo)**: faz `pg_dump | gzip` do
+banco `ana`, grava `ana-AAAA-MM-DD-HHMM.sql.gz` na pasta do Google Drive e apaga os
+arquivos com mais de 30 dias. Se algo falhar, o erro aparece nos logs do serviço `backup`.
+
+### Gerar o token do Drive (uma vez, no seu PC)
+
+1. Instale o [rclone](https://rclone.org/downloads/) no PC.
+2. No terminal: `rclone authorize "drive" "" "" "" "drive.file"` (o escopo `drive.file` limita
+   o acesso aos arquivos criados pelo próprio backup). Se a sua versão não aceitar os
+   argumentos extras, use só `rclone authorize "drive"`.
+3. O navegador abre; entre na conta do Google dono do Drive e autorize.
+4. O terminal mostra um JSON entre `Paste the following into your remote machine --->` e
+   `<---End paste`. Copie esse JSON em uma linha só.
+5. No Easypanel, aba **Environment**, cole em `RCLONE_CONFIG_GDRIVE_TOKEN` (troque o
+   `troque-token-rclone-drive`). Mantenha `BACKUP_DESTINO=gdrive:ana-backups`; a pasta
+   `ana-backups` é criada no primeiro envio. Faça o **Deploy**.
+
+O token se renova sozinho. Se um dia o acesso for revogado, gere outro e cole de novo.
+
+### Testar na hora
+
+No Easypanel, abra o console do serviço `backup` e rode `/backup.sh`. Deve terminar com
+`[backup] ok: ana-....sql.gz` e o arquivo aparecer na pasta do Drive.
+
+### Restaurar
+
+1. Baixe o arquivo escolhido da pasta `ana-backups` do Drive (ou, no console do serviço
+   `backup`: `rclone copy gdrive:ana-backups/ana-AAAA-MM-DD-HHMM.sql.gz /tmp/`).
+2. Pare o `app` e o `evolution` para ninguém gravar durante a restauração.
+3. Para restaurar sobre um banco limpo, no console do serviço `backup`:
+
+   ```bash
+   export PGHOST=postgres PGUSER="$POSTGRES_USER" PGPASSWORD="$POSTGRES_PASSWORD"
+   dropdb ana && createdb ana
+   gunzip -c /tmp/ana-AAAA-MM-DD-HHMM.sql.gz | psql -v ON_ERROR_STOP=1 ana
+   ```
+
+4. Suba o `app` e o `evolution` de novo.
+
 ## Atualizar depois
 
 A cada merge na `main`, clique em **Deploy** no Easypanel (ou ligue o deploy automático

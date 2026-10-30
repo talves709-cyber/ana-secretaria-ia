@@ -4,3 +4,7 @@ services:
     ports: ["127.0.0.1:8080:8080"]
   app:
     ports: ["127.0.0.1:3100:3100"]
+  backup:
+    # Local: grava dentro do contêiner (sem Google Drive). Teste: ... run --rm backup /backup.sh
+    environment:
+      BACKUP_DESTINO: /tmp/bk
