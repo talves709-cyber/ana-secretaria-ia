@@ -44,3 +44,9 @@ Retenção: 3 a 4 meses. Painel web com resumo diário. A Ana só responde depoi
 |---|---|---|---|---|
 | 3.1 | Painel web com filtros e resumo diário | claude | em andamento | `/painel`: resumo do dia + últimas classificações + caixa de revisão |
 | 3.2 | Sugestão de resposta no estilo do Thiago, enviada só após o OK dele | livre | a fazer | regras de risco antes |
+
+## Secretária executiva multiagente (especificação 2026-10-27)
+
+| # | Tarefa | Dono | Status | Notas |
+|---|---|---|---|---|
+| 4.0 | Especificação + Bíblia | claude | em revisão | `docs/superpowers/specs/2026-10-27-secretaria-executiva-multiagente-design.md`, `docs/BIBLIA.md` |
