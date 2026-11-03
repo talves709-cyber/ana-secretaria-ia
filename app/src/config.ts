@@ -17,12 +17,35 @@ const esquema = z.object({
   WEBHOOK_URL: z.string().url(),
   WEBHOOK_TOKEN: segredo(16),
   PAINEL_SENHA: segredo(12),
+  // Assina o cookie de sessão do painel.
+  SESSAO_SEGREDO: segredo(32),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   // Sem chave, a Ana só grava as mensagens e não classifica.
   ANTHROPIC_API_KEY: z.string().optional().transform((v) => v?.trim() || undefined),
   CLAUDE_MODELO: z.string().default('claude-haiku-5-5'),
   CLAUDE_ESFORCO: z.enum(['low', 'medium', 'high']).default('low'),
+  CLAUDE_MODELO_ESPECIALISTA: z.string().default('claude-opus-5-5'),
+  CLAUDE_ESFORCO_ESPECIALISTA: z.enum(['low', 'medium', 'high']).default('medium'),
+  // Teto de gasto com IA por mês, em US$ (todos os agentes somados).
+  IA_LIMITE_MENSAL_USD: z.coerce.number().positive().default(50),
+  // Número do Thiago (só dígitos, com DDI). Vazio = comandos pelo WhatsApp desligados.
+  DONO_WHATSAPP: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined)
+    .refine((v) => v === undefined || /^\d{8,15}$/.test(v), 'use só dígitos, com DDI'),
+  // JIDs extras do dono (ex.: formato @lid), separados por vírgula.
+  DONO_JIDS_EXTRA: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? '').split(',').map((j) => j.trim()).filter(Boolean)),
+  // Janela de silêncio da Ana (hora cheia, fuso de São Paulo): sem avisos de INICIO até FIM, exceto urgentes.
+  SILENCIO_INICIO: z.coerce.number().int().min(0).max(23).default(19),
+  SILENCIO_FIM: z.coerce.number().int().min(0).max(23).default(8),
   CLASSIFICADOR_CONCORRENCIA: z.coerce.number().int().positive().default(2),
+}).refine((c) => c.SILENCIO_INICIO !== c.SILENCIO_FIM, {
+  path: ['SILENCIO_FIM'],
+  message: 'precisa ser diferente de SILENCIO_INICIO',
 });
 
 export type Config = z.infer<typeof esquema>;

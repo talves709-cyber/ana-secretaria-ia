@@ -10,6 +10,8 @@ export interface MensagemNormalizada {
   tipo: string;
   texto: string | null;
   recebidaEm: Date;
+  /** Encaminhada (isForwarded ou forwardingScore > 0): nunca vale como comando do dono. */
+  encaminhada: boolean;
 }
 
 type Qualquer = Record<string, any>;
@@ -54,6 +56,12 @@ function extrairTipo(item: Qualquer, m: Qualquer): string {
   return chave ?? 'desconhecido';
 }
 
+/** contextInfo de qualquer tipo de mensagem (texto, imagem, documento...) ou do próprio item. */
+function foiEncaminhada(item: Qualquer, m: Qualquer): boolean {
+  const infos = [item.contextInfo, ...Object.values(m).map((v) => (typeof v === 'object' && v !== null ? v.contextInfo : undefined))];
+  return infos.some((ci) => ci && (ci.isForwarded === true || Number(ci.forwardingScore) > 0));
+}
+
 function extrairData(valor: unknown): Date {
   const n =
     typeof valor === 'number' ? valor
@@ -92,6 +100,7 @@ export function normalizarMensagens(data: unknown): MensagemNormalizada[] {
       tipo: extrairTipo(item, m),
       texto: extrairTexto(m),
       recebidaEm: extrairData(item.messageTimestamp),
+      encaminhada: foiEncaminhada(item, m),
     });
   }
   return resultado;

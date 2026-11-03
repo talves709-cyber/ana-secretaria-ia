@@ -54,6 +54,24 @@ services:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_URL: http://evolution:8080
 
+  backup:
+    build: ./backup
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: America/Sao_Paulo
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Destino rclone, ex.: gdrive:ana-backups (remote "gdrive" configurado abaixo)
+      BACKUP_DESTINO: ${BACKUP_DESTINO}
+      RCLONE_CONFIG_GDRIVE_TYPE: ${RCLONE_CONFIG_GDRIVE_TYPE:-drive}
+      RCLONE_CONFIG_GDRIVE_SCOPE: ${RCLONE_CONFIG_GDRIVE_SCOPE:-drive.file}
+      RCLONE_CONFIG_GDRIVE_TOKEN: ${RCLONE_CONFIG_GDRIVE_TOKEN:-}
+      RCLONE_CONFIG_GDRIVE_CLIENT_ID: ${RCLONE_CONFIG_GDRIVE_CLIENT_ID:-}
+      RCLONE_CONFIG_GDRIVE_CLIENT_SECRET: ${RCLONE_CONFIG_GDRIVE_CLIENT_SECRET:-}
+
 volumes:
   evolution_instances:
   postgres_data:

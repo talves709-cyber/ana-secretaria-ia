@@ -29,6 +29,17 @@ describe('normalizarMensagens', () => {
     expect(m!.recebidaEm.toISOString()).toBe('2025-10-23T11:46:40.000Z');
   });
 
+  it('marca encaminhada por isForwarded ou forwardingScore em qualquer tipo de mensagem', () => {
+    const base = { key: { remoteJid: '5500000000000@s.whatsapp.net', fromMe: true, id: 'F' } };
+    const ler = (message: unknown, extra: Record<string, unknown> = {}) => normalizarMensagens({ ...base, ...extra, message })[0]!.encaminhada;
+    expect(ler({ conversation: 'ok 12' })).toBe(false);
+    expect(ler({ extendedTextMessage: { text: 'ok 12', contextInfo: { isForwarded: true } } })).toBe(true);
+    expect(ler({ imageMessage: { caption: 'ok 12', contextInfo: { forwardingScore: 3 } } })).toBe(true);
+    expect(ler({ ephemeralMessage: { message: { documentMessage: { caption: 'x', contextInfo: { forwardingScore: 1 } } } } })).toBe(true);
+    expect(ler({ extendedTextMessage: { text: 'ok 12', contextInfo: { isForwarded: false, forwardingScore: 0 } } })).toBe(false);
+    expect(ler({ conversation: 'ok 12' }, { contextInfo: { isForwarded: true } })).toBe(true);
+  });
+
   it('usa o participante como remetente em grupo', () => {
     const [m] = normalizarMensagens({
       key: { remoteJid: '1203630@g.us', fromMe: false, id: 'G1', participant: '5521888880000@s.whatsapp.net' },

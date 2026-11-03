@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
+import type { UsoTokens } from './uso-ia.js';
 import type { ClassificacaoParaGravar, ConversaParaIA, MensagemParaIA, Taxonomia } from './classificacao-dados.js';
 
 export const PRIORIDADES = ['baixa', 'media', 'alta', 'urgente'] as const;
@@ -110,7 +111,7 @@ export interface OpcoesClassificador {
   esforco: 'low' | 'medium' | 'high';
 }
 
-export type ResultadoIA = { tipo: 'ok'; resposta: RespostaIA; modelo: string } | { tipo: 'recusa'; motivo: string };
+export type ResultadoIA = { tipo: 'ok'; resposta: RespostaIA; modelo: string; uso: UsoTokens } | { tipo: 'recusa'; motivo: string };
 
 export async function perguntarIA(o: OpcoesClassificador, sistema: string, pedido: string): Promise<ResultadoIA> {
   const resposta = await o.client.beta.messages.parse({
@@ -129,7 +130,14 @@ export async function perguntarIA(o: OpcoesClassificador, sistema: string, pedid
   if (!resposta.parsed_output) {
     throw new Error(`Resposta da IA sem JSON válido (stop_reason: ${resposta.stop_reason})`);
   }
-  return { tipo: 'ok', resposta: resposta.parsed_output, modelo: resposta.model };
+  const u = resposta.usage;
+  const uso: UsoTokens = {
+    entrada: u.input_tokens,
+    saida: u.output_tokens,
+    cacheLeitura: u.cache_read_input_tokens ?? 0,
+    cacheEscrita: u.cache_creation_input_tokens ?? 0,
+  };
+  return { tipo: 'ok', resposta: resposta.parsed_output, modelo: resposta.model, uso };
 }
 
 export interface DepsClassificar {

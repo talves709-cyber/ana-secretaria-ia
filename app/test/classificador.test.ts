@@ -100,7 +100,7 @@ describe('classificarConversa', () => {
   }
 
   it('grava a classificação para todas as pendentes', async () => {
-    const { d, gravados } = deps({ tipo: 'ok', resposta, modelo: 'claude-opus-5-5' });
+    const { d, gravados } = deps({ tipo: 'ok', resposta, modelo: 'claude-opus-5-5', uso: { entrada: 10, saida: 5, cacheLeitura: 0, cacheEscrita: 0 } });
     expect(await classificarConversa(d, 3)).toBe(2);
     expect(gravados[0]?.ids).toEqual([2, 4]);
     expect(gravados[0]?.c.categoriaId).toBe(7);

@@ -17,7 +17,12 @@ function tokenValido(recebido: unknown, esperado: string): boolean {
 
 /** Webhook rápido: valida o token, grava o evento bruto, enfileira e responde. */
 export function criarServidor(deps: DepsWebhook) {
-  const app = Fastify({ logger: true, bodyLimit: 20 * 1024 * 1024 });
+  const app = Fastify({
+    logger: true,
+    bodyLimit: 20 * 1024 * 1024,
+    // Um salto: só o Traefik do Easypanel fica na frente; req.ip é o IP que ele registrou (nunca `true`); equivale a trustProxy: 1.
+    trustProxy: (_endereco, salto) => salto < 1,
+  });
 
   app.get('/saude', async () => ({ ok: true }));
 

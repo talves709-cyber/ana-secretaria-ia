@@ -64,7 +64,21 @@ Arquitetura original da captura: `docs/ARQUITETURA.md`.
 | Página `/conexao` (QR Code, totais) | no ar | `painel.ts` |
 | Classificador: empresa, negócio, categoria, prioridade, resumo, próxima ação (janela de 45 s por conversa) | no ar | `classificador.ts`, `classificacao-dados.ts` |
 | Página `/painel`: resumo do dia, classificações, caixa de revisão (confiança < 0,6) | no ar | `painel.ts` |
-| Demandas, CRM, agentes especialistas, Ana orquestradora, Executor | planejado (Partes 1–5) | — |
+| Login do painel: `/entrar` com senha, cookie assinado (`SESSAO_SEGREDO`), 12 h, limite de tentativas por IP; `/sair` | no ar (Parte 0) | `sessao.ts`, `painel.ts` |
+| Backup diário do Postgres (03:00) para o Google Drive, retenção de 30 dias | no código; token do Drive a gerar (ver pendências) | serviço `backup` do `docker-compose.yml` |
+| Demandas e CRM: clientes, contatos, demandas com itens e histórico de etapas | no código (Parte 1) | `demandas.ts`, `crm-dados.ts`, migração `003` |
+| Agente especialista (Opus): abre ou junta demandas, plano e resposta pronta; fila `especialista` | no código (Parte 1) | `especialista.ts`, `especialista-dados.ts` |
+| Custo de IA: registro por chamada em `uso_ia`, teto mensal com aviso a 80% | no código (Parte 1) | `uso-ia.ts` |
+| Comandos do Thiago pelo WhatsApp (conversa dele consigo mesmo); fila `comandos` | no código (Parte 1) | `comandos.ts`, `acoes.ts`, `conversa-dono.ts` |
+| Executor de envio: único caminho de envio a terceiros, com aprovação válida (24 h, hash do rascunho, um destino) | no código (Parte 1) | `executor.ts` |
+| Ana: pacotes de até 5 pedidos a cada 5 min (fila `ana`), urgentes na hora, silêncio 19h–8h, fins de semana e feriados | no código (Parte 1) | `ana.ts`, `silencio.ts` |
+| Painel do pipeline: quadro por etapa, ficha do cliente, edição das bases de conhecimento | no código (Parte 1) | `painel-crm.ts` |
+| Agenda e lembretes (hoje `agenda` só muda a etapa para Agendado, sem criar evento) | planejado (Parte 2) | — |
+| Resumos 8h30 e 18h, cobranças automáticas, rotinas | planejado (Parte 3) | — |
+| E-mail (Microsoft 365 e Gmail) | planejado (Parte 4) | — |
+| Reuniões | planejado (Parte 5) | — |
+
+Peças "no código" estão na branch das Partes 0 e 1 e entram no ar com a primeira subida (ver `docs/DEPLOY-EASYPANEL.md`).
 | GEO/SEO | planejado (Parte 6) | — |
 
 ## 5. Modelo de dados
@@ -74,10 +88,17 @@ Hoje (`app/migrations/001`, `002`): `segmentos`, `empresas`, `negocios`, `catego
 `estado_conexao`. Hierarquia Segmento → Empresa → Negócio; categoria é transversal;
 classificação separada da mensagem; empresa nova detectada pela IA vira `sugestoes`.
 
-Planejado (a partir de `003`): `contas_canal`, `emails`, `clientes`, `cliente_contatos`,
-`demandas`, `demanda_itens`, `demanda_etapas`, `rascunhos`, `aprovacoes`, `envios`,
-`eventos_agenda`, `bases_conhecimento`, `exemplos_estilo`, `rotinas`, `pedidos_ana`, `uso_ia`.
-Detalhes na especificação, seção 4.
+Migração `003_demandas.sql`: `clientes`, `cliente_contatos`, `demandas` (etapa e
+prioridade), `demanda_itens`, `demanda_etapas` (histórico de mudanças e quem fez), `rascunhos`,
+`aprovacoes`, `envios`, `bases_conhecimento` (uma por empresa), `exemplos_estilo`,
+`confirmacoes` (comandos que esperam o "sim"), `uso_ia` (custo por chamada) e `avisos`
+(só a chave do aviso de limite de IA, para sair uma vez por mês). O pacote de pedidos usa
+`demandas.avisada_em` (vazio = ainda não avisada ao Thiago). `rascunhos.mostrado_em` guarda
+quando o texto inteiro foi mostrado a ele. Ao rodar, a `003` marca todas as mensagens que já
+existiam como vistas em `demanda_itens` (o especialista não reanalisa o histórico). A tabela
+`conversas` ganhou um novo valor de modo.
+
+Planejado: `contas_canal`, `emails`, `eventos_agenda`, `rotinas`. Detalhes na especificação, seção 4.
 
 ## 6. Pipeline e CRM
 
@@ -87,13 +108,42 @@ Ficha do cliente com demandas dentro. Etapas da demanda:
 
 | Comando do dono | Efeito |
 |---|---|
-| `ok 14` | envia a resposta aprovada → Concluído |
+| `ok 14` | envia a resposta aprovada e aplica a etapa sugerida (concluir → Concluído, aguardar → Aguardando terceiro, comigo → Comigo, agendar → Agendado se houver data) |
 | `14 agenda quinta 15h` | evento na agenda da empresa + lembrete → Agendado |
 | `14 aguardar` | Aguardando terceiro (volta a Comigo se o cliente responder) |
 | `14 muda: …` | nova versão da resposta, pede confirmação |
 | `14 comigo` | Comigo |
 
-Texto livre também vale; a Ana confirma o que entendeu antes de executar.
+Texto livre também vale; a Ana confirma o que entendeu e só executa depois de um "sim" sozinho
+na mensagem ("não" ou "cancela" desfaz). Hoje `agenda` só move a etapa e guarda a data; o
+evento na agenda da empresa e o lembrete chegam na Parte 2. Aprovação vale 24 h, para um
+rascunho (hash) e um destino, e cai se o cliente escrever depois do rascunho.
+
+**Só sai o que o Thiago viu inteiro.** O pacote leva a resposta inteira e marca
+`mostrado_em`; a resposta do `muda` e a confirmação de texto livre de um aprovar também. Se o
+especialista grava uma resposta nova numa demanda já avisada, ele zera `avisada_em` e o próximo
+ciclo reavisa a demanda, marcada `(novidade)` quando não está em Novo (o ciclo pega toda demanda
+aberta com `avisada_em` vazio). `ok 14` numa versão nunca mostrada não envia: a Ana responde
+com o texto novo e pede outro `ok 14`. No painel, o Aprovar leva a versão exibida; se a resposta
+mudou desde que a página abriu, a ação é recusada.
+
+**Comandos que não valem:** mensagem encaminhada (`isForwarded` ou `forwardingScore`) nunca é
+comando; comando que chega mais de 10 minutos depois de enviado (fila parada, reconexão) é
+ignorado com aviso da hora, para o Thiago mandar de novo se ainda vale.
+
+**Repetir um envio:** depois de falha certa, novo `ok 14` reabre e envia; com envio incerto em
+aberto (pode ter saído), a Ana pede para conferir no WhatsApp e, para reenviar, usar `14 muda: ...`.
+
+**Painel** (todas as rotas pedem login): `/painel` (resumo e caixa de revisão),
+`/painel/pipeline` (quadro por etapa, filtros, botões de ação em cada cartão),
+`/painel/clientes/:id` (ficha com as demandas), `/painel/bases` (texto da base de
+conhecimento de cada empresa), `/conexao` (QR Code e totais).
+
+**Filas (BullMQ):** `eventos`, `classificar` (janela de 45 s por conversa), `especialista`,
+`comandos` e `ana` (ciclo repetido a cada 5 minutos). As filas de comandos e da Ana só sobem
+se `DONO_WHATSAPP` estiver preenchido; sem ele, o agendador do ciclo é removido do Redis.
+Mensagem do Thiago numa conversa `@lid` desconhecida gera, uma vez por conversa, um aviso no
+log com o identificador para pôr em `DONO_JIDS_EXTRA`.
 
 ## 7. Regras da IA
 
@@ -104,6 +154,10 @@ Texto livre também vale; a Ana confirma o que entendeu antes de executar.
   estruturados (validados com zod); nunca executa nada.
 - **Ana:** organiza, agrupa pedidos (até ~5 por mensagem), respeita o silêncio (19h–8h, fins de
   semana, feriados), exceto urgente.
+- **Teto mensal de IA** (`IA_LIMITE_MENSAL_USD`): a 80% a Ana avisa; a 100% pausam até o mês
+  seguinte a análise do especialista e a interpretação de texto livre; a triagem e os comandos
+  curtos continuam. O custo usa o preço do modelo pelo prefixo do id; se o modelo devolvido não
+  tiver preço, vale o configurado.
 - **Aprendizado de estilo:** cada resposta aprovada ou corrigida vira exemplo por empresa. A
   conversa do dono consigo mesmo nunca entra (é o canal de comando).
 
@@ -115,7 +169,23 @@ Variáveis de ambiente (valores só no Environment do Easypanel; lista em `.env.
 `POSTGRES_USER`, `POSTGRES_PASSWORD`, `EVOLUTION_API_KEY`, `EVOLUTION_PUBLIC_URL`,
 `EVOLUTION_INSTANCE`, `PORT`, `WEBHOOK_URL`, `WEBHOOK_TOKEN`, `PAINEL_SENHA`,
 `WORKER_CONCURRENCY`, `ANTHROPIC_API_KEY`, `CLAUDE_MODELO`, `CLAUDE_ESFORCO`,
-`CLASSIFICADOR_CONCORRENCIA`. As partes novas acrescentam as suas aqui.
+`CLASSIFICADOR_CONCORRENCIA`.
+
+Variáveis novas das Partes 0 e 1:
+
+| Variável | Para que serve |
+|---|---|
+| `SESSAO_SEGREDO` | assina o cookie de sessão do painel (segredo, mín. 32) |
+| `DONO_WHATSAPP` | número do Thiago (só dígitos, com DDI); vazio desliga comandos e avisos |
+| `DONO_JIDS_EXTRA` | identificadores extras da conversa dele consigo mesmo (formato `...@lid`), separados por vírgula |
+| `CLAUDE_MODELO_ESPECIALISTA` | modelo do agente especialista (padrão `claude-opus-5-5`) |
+| `CLAUDE_ESFORCO_ESPECIALISTA` | esforço do especialista (padrão `medium`) |
+| `IA_LIMITE_MENSAL_USD` | teto mensal de gasto com IA em US$; aviso a 80% |
+| `SILENCIO_INICIO`, `SILENCIO_FIM` | hora cheia em que o silêncio começa (19) e termina (8), fuso America/Sao_Paulo; precisam ser diferentes, e a janela pode ou não virar a meia-noite |
+| `BACKUP_DESTINO` | destino do backup no formato `remote:pasta` (`gdrive:ana-backups`) |
+| `RCLONE_CONFIG_GDRIVE_*` | configuração do rclone para o Google Drive (`TYPE`, `SCOPE`, `TOKEN`; `CLIENT_ID` e `CLIENT_SECRET` opcionais) |
+
+Primeira subida das Partes 0 e 1 e roteiro do teste de fumaça: `docs/DEPLOY-EASYPANEL.md`.
 
 Desenvolvimento local:
 
@@ -133,6 +203,13 @@ docker compose -f docker-compose.local.yml up -d
 | Microsoft 365 (cada empresa) | App da Ana no Entra, permissões de aplicação (ler e-mail, enviar, agenda) restritas às caixas do dono por política de acesso do Exchange | TI da empresa (pedido pronto no plano da Parte 2/4) |
 | Gmail e Google Agenda | OAuth do dono; app do Google publicado para uso próprio | dono |
 | Anthropic | chave da API no Environment | dono |
+
+### Pendências abertas
+
+- **Firewall da VPS** (Task 3): aguarda o IP do Thiago para liberar só o necessário. Fazer antes de ligar o e-mail.
+- **Token do Google Drive** do backup: a gerar com `rclone authorize` (passo a passo no deploy); sem ele o serviço de backup falha.
+- **Autorizações Microsoft** (Partes 2 e 4): pedido à TI de cada empresa, ainda sem resposta.
+- **Notificação no celular**: mensagem que a Ana manda na conversa do Thiago consigo mesmo pode não gerar notificação (aparelho conectado enviando para a própria conversa). Verificar no teste guiado; se não notificar, avaliar um número próprio para a Ana.
 
 Atenção: o conector Microsoft 365 do Claude (usado nas sessões de desenvolvimento) **não** serve
 para a Ana na VPS.
@@ -157,3 +234,5 @@ para a Ana na VPS.
 | 2026-10-23 | Fase 1 no ar (captura WhatsApp, `/conexao`); cadastro Kas/Kamex/WTA/Pessoal; classificador. |
 | 2026-10-26 | `/painel` com resumo e caixa de revisão; modelo padrão Haiku. |
 | 2026-10-27 | Especificação da secretária executiva multiagente (Partes 0–6) e esta Bíblia. |
+| 2026-10-30 | Partes 0 e 1 no código: login do painel, backup no Drive, demandas e CRM, especialista, custo de IA, comandos pelo WhatsApp, Executor, pacotes e silêncio, painel do pipeline. Falta a primeira subida e o teste de fumaça. |
+| 2026-10-30 | Correções da revisão final: só envia a versão mostrada (`mostrado_em`), reaviso de novidade, resposta inteira no pacote, histórico antigo marcado como visto, comandos encaminhados ou antigos ignorados, reenvio depois de falha, aviso de `@lid`. |

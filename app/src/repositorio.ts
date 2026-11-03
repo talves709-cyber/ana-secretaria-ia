@@ -79,6 +79,24 @@ export async function gravarMensagem(
   return r.rows[0] ? { id: Number(r.rows[0].id), conversaId: conversa.id, modo: conversa.modo } : null;
 }
 
+/** Põe as conversas do dono em modo 'comando' (não são classificadas). Cria a conversa se não existir. */
+export async function marcarConversasDeComando(db: Db, jids: string[]): Promise<void> {
+  for (const jid of jids) {
+    await db.query(
+      `INSERT INTO conversas (jid, tipo, modo) VALUES ($1, 'individual', 'comando')
+       ON CONFLICT (jid) DO UPDATE SET modo = 'comando'`,
+      [jid],
+    );
+  }
+}
+
+/** Texto e hora (do WhatsApp) da mensagem; null se não existe ou não tem texto. */
+export async function textoDaMensagem(db: Db, id: number): Promise<{ texto: string; recebidaEm: Date } | null> {
+  const r = await db.query<{ texto: string | null; recebida_em: Date }>('SELECT texto, recebida_em FROM mensagens WHERE id = $1', [id]);
+  const m = r.rows[0];
+  return m?.texto ? { texto: m.texto, recebidaEm: m.recebida_em } : null;
+}
+
 export async function gravarEstadoConexao(db: Db, instancia: string, estado: string) {
   await db.query(
     `INSERT INTO estado_conexao (instancia, estado) VALUES ($1, $2)
